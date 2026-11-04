@@ -53,6 +53,24 @@ constexpr float kRenderGamma = 2.2f;
 constexpr float kBlobEpsilon = 0.004f;
 
 // ---------------------------------------------------------------------------
+// Wi-Fi Access Point.
+//
+// Change here in config.h, or override at compile time in platformio.ini via
+// -DWIFI_SSID=\"LightRocks-2\" and -DWIFI_PASSWORD=\"lightrocks\".
+// ---------------------------------------------------------------------------
+
+#ifndef WIFI_SSID
+#define WIFI_SSID "LightRocks-1"
+#endif
+
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "lightrocks"
+#endif
+
+constexpr char kWifiSsid[] = WIFI_SSID;
+constexpr char kWifiPassword[] = WIFI_PASSWORD;
+
+// ---------------------------------------------------------------------------
 // Web UI.
 // ---------------------------------------------------------------------------
 

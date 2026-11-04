@@ -26,8 +26,8 @@ struct Telemetry {
 // straight to the board, so no router is involved.
 class WebUi {
 public:
-  static constexpr char kSsid[] = "LightRocks";
-  static constexpr char kPassword[] = "lightrocks";
+  static constexpr const char *kSsid = kWifiSsid;
+  static constexpr const char *kPassword = kWifiPassword;
 
   void setup(Settings *settings, SettingsStore *store);
   bool begin();

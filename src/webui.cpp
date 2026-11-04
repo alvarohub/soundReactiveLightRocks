@@ -484,6 +484,7 @@ function live(){
   CALIB=s.calib?1:0;
   setCalib();
  }
+ if(ST.ssid)$('host').textContent=ST.ssid+' · '+location.host;
  $('sLvl').textContent=ST.levelPct+'%';
  $('sDb').textContent=ST.dbfs;
  $('sPk').textContent=ST.peakHz+' Hz';
@@ -629,8 +630,8 @@ String WebUi::stateJson() const {
   buf[0] = '\0';
   const uint32_t nowMs = millis();
 
-  appendf(buf, sizeof(buf), n, "{\"gainDb\":%u,\"strips\":[",
-          (unsigned)settings_->gainDb);
+  appendf(buf, sizeof(buf), n, "{\"ssid\":\"%s\",\"gainDb\":%u,\"strips\":[",
+          kSsid, (unsigned)settings_->gainDb);
 
   for (size_t i = 0; i < kStripCount; i++) {
     const StripSettings &s = settings_->strip[i];
