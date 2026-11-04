@@ -24,7 +24,6 @@ int meterX = 15;
 int meterWidth = 222;
 int hudY = 111;
 int hintY = 123;
-int apX = 226;
 int bandWidth = 8;
 int barWidth = 7;
 
@@ -248,24 +247,34 @@ void drawMeters(const Telemetry &tele) {
 // HUD can be refreshed without repainting the whole line.
 void drawHud(const Telemetry &tele) {
   char line[48];
-  snprintf(line, sizeof(line), "lvl %3u%% %+4d dB %4u Hz", (unsigned)tele.levelPct,
-           (int)tele.dbfs, (unsigned)tele.peakHz);
+  snprintf(line, sizeof(line), "lvl %3u%% %+4d dB %4u Hz  +%udB",
+           (unsigned)tele.levelPct, (int)tele.dbfs, (unsigned)tele.peakHz,
+           (unsigned)settings.gainDb);
 
   M5.Display.setTextSize(1);
   M5.Display.setTextColor(kWhite, kBlack);
   M5.Display.setCursor(2, hudY);
   M5.Display.print(line);
-
-  M5.Display.setTextColor(web.enabled() ? kApOn : kGrey, kBlack);
-  M5.Display.setCursor(apX, hudY);
-  M5.Display.print("AP");
 }
 
 void drawHint() {
+  const bool on = web.enabled();
+  M5.Display.fillRect(0, hintY, M5.Display.width(), 10, kBlack);
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(kGrey, kBlack);
+  M5.Display.setTextColor(on ? kApOn : kGrey, kBlack);
   M5.Display.setCursor(2, hintY);
-  M5.Display.print("A test/hold wifi   B gain/save");
+  M5.Display.print(WebUi::kSsid);
+
+  M5.Display.setTextColor(kGrey, kBlack);
+  if (on) {
+    const String ip = web.ip();
+    const int ipX = M5.Display.width() - (int)ip.length() * 6 - 2;
+    M5.Display.setCursor(ipX > 100 ? ipX : 100, hintY);
+    M5.Display.print(ip);
+  } else {
+    M5.Display.setCursor(M5.Display.width() - 40, hintY);
+    M5.Display.print("AP off");
+  }
 }
 
 // Shown at boot (and when the access point is toggled), because the phone needs
@@ -282,7 +291,7 @@ void showBanner() {
   M5.Display.setTextColor(on ? kApOn : kGrey, kBlack);
   M5.Display.setTextSize(2);
   M5.Display.setCursor(4, 18);
-  M5.Display.print(on ? WebUi::kSsid : "---");
+  M5.Display.print(WebUi::kSsid);
 
   M5.Display.setTextSize(1);
   M5.Display.setTextColor(kWhite, kBlack);
@@ -344,7 +353,6 @@ void computeLayout() {
   meterWidth = w - meterX - 3;
   hudY = h - 24;
   hintY = h - 12;
-  apX = w - 16;
 }
 
 } // namespace
