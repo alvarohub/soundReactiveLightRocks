@@ -139,7 +139,7 @@ inline void decodeStripV3(const uint8_t *p, PhysicalStripSettings &phys,
 
 void encodeSettings(const Settings &s, uint8_t *out) {
   out[0] = kSettingsBlobVersion;
-  out[1] = s.gainDb;
+  out[1] = (uint8_t)s.gainDb; // two's complement, sign restored on decode
   size_t n = kSettingsHeaderSize;
 
   for (size_t i = 0; i < kStripCount; i++) {
@@ -160,7 +160,7 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
   }
 
   Settings s;
-  s.gainDb = in[1];
+  s.gainDb = (int8_t)in[1];
 
   if (in[0] == kSettingsBlobVersion && len == kSettingsBlobSize) {
     size_t n = kSettingsHeaderSize;

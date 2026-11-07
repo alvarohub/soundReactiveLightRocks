@@ -270,13 +270,13 @@ void Display::drawHud(const Telemetry &tele, const Settings &settings) {
 
   char line[48];
   if (bpm > 0) {
-    snprintf(line, sizeof(line), "lvl %3u%% %+4ddB %3ubpm +%udB   ",
+    snprintf(line, sizeof(line), "lvl %3u%% %+4ddB %3ubpm %+ddB  ",
              (unsigned)tele.levelPct, (int)tele.dbfs, (unsigned)bpm,
-             (unsigned)settings.gainDb);
+             (int)settings.gainDb);
   } else {
-    snprintf(line, sizeof(line), "lvl %3u%% %+4d dB %4u Hz  +%udB",
+    snprintf(line, sizeof(line), "lvl %3u%% %+4d dB %4u Hz %+ddB",
              (unsigned)tele.levelPct, (int)tele.dbfs, (unsigned)tele.peakHz,
-             (unsigned)settings.gainDb);
+             (int)settings.gainDb);
   }
 
   M5.Display.setTextSize(1);

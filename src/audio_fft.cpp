@@ -247,9 +247,12 @@ float SpectrumAnalyzer::bandFlux(float centerHz, float widthHz) const {
     sum += rise_[i];
   }
   const int count = last - first + 1;
-  const float gainLin = powf(10.0f, (float)gainDb_ / 20.0f);
+  // Deliberately NOT scaled by the microphone gain: gain is a display and
+  // gating preference, and letting it into the onset function meant that a
+  // negative gain (used in loud rooms) also suppressed the beat detector. The
+  // gain still reaches the detector through the band level that gates silence.
   const float widthNorm = sqrtf((float)(kBins - 1) / (float)count);
-  return sum * gainLin * widthNorm;
+  return sum * widthNorm;
 }
 
 int SpectrumAnalyzer::bandFromHz(float hz) const {

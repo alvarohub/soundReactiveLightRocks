@@ -34,7 +34,7 @@ uint8_t hwStrip = 0;
 
 uint32_t lastFrameUs = 0;
 uint32_t lastStats = 0;
-uint8_t syncedGainDb = 0xFF;
+int16_t syncedGainDb = 0x7FFF; // sentinel: force a first sync
 
 // Writing NVS on every slider move would wear the flash and stall the CPU cache
 // mid-drag, so changes are saved once they have been quiet for 2 seconds.
@@ -91,8 +91,9 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
 
     const float level =
         analyzer.bandLevel((float)s.centerHz, (float)s.widthHz);
+    // The band level doubles as the silence gate: no sound, no beat.
     const BeatInfo beat = beats[i][l].update(
-        analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), dtMs,
+        analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), level, dtMs,
         s.beatSensitivityPct);
 
     // Pads only reach a layer that has the tap trigger armed, so the

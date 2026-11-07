@@ -135,6 +135,19 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### Beat detection in silence (fixed 2026-11-07)
+The port had lowered the absolute flux floor to `0.008` (the sister project used
+`0.02`) and nothing gated on actual level, so once the adaptive threshold decayed
+towards zero in a quiet room, room noise registered as beats.
+
+Two guards now:
+1. `kMinStrength` restored to `0.02`.
+2. A **silence gate**: `BeatDetector::update()` takes the band level and refuses to
+   fire below `kSilenceLevel = 0.06`, also clearing the tempo lock at once.
+
+`SpectrumAnalyzer::bandFlux()` is no longer multiplied by the mic gain, so setting a
+negative gain (loud rooms) does not also deafen the beat detector.
+
 ### Colour blending (fixed 2026-11-07)
 Two real defects were found and fixed in `LedStrip`:
 1. **Gamma was applied per effect before accumulation**, so a 50 %-amplitude blob

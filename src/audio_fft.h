@@ -24,7 +24,8 @@ public:
   // Returns false if the capture path is not running.
   bool update();
 
-  void setGainDb(uint8_t gainDb) { gainDb_ = gainDb; }
+  // Negative values attenuate the analysis (useful in loud rooms).
+  void setGainDb(int8_t gainDb) { gainDb_ = gainDb; }
 
   const float *bands() const { return band_; } // 0..1, smoothed for display
   float level() const { return level_; }       // 0..1, instantaneous, broadband
@@ -64,6 +65,6 @@ private:
   float levelDb_ = -60.0f;
   float peakHz_ = 0.0f;
   float flux_ = 0.0f;
-  uint8_t gainDb_ = 0;
+  int8_t gainDb_ = 0;
   bool ready_ = false;
 };

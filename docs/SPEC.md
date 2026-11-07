@@ -230,8 +230,13 @@ audio frame → FFT → band-limited spectral flux → adaptive threshold → on
 ```
 
 * **Onset function**: `bandFlux()` sums only the *positive* frame-to-frame magnitude
-  change inside `center ± width/2`, scaled by mic gain and normalised for window
-  width, so narrow and wide windows trigger comparably.
+  change inside `center ± width/2`, normalised for window width so narrow and wide
+  windows trigger comparably. It is deliberately **not** scaled by the microphone
+  gain — gain is a display/gating preference, and letting it in meant a negative
+  gain also silenced the detector.
+* **Silence gate**: if the layer's band level is below `0.06` the frame counts as
+  silence and no beat can fire, however the adaptive statistics look. The tempo lock
+  is also dropped immediately, so silence never reports a BPM.
 * **Threshold**: adaptive, `mean + k·σ` over a ~900 ms window, with `k` from
   `beatSensitivityPct` (3.2σ at 0 %, 0.6σ at 100 %).
 * **Refractory**: 180 ms minimum interval (rejects double triggers, caps at 333 BPM).
@@ -299,7 +304,7 @@ Layer 2 of strip 1 ships pre-configured (sparkle, 4 kHz window, 70 % weight) so
 
 | Parameter | Range | Default | Notes |
 |-----------|-------|---------|-------|
-| `gainDb` | 0, 6, 12, 18 | 0 | Microphone gain, hardware quantised |
+| `gainDb` | −24…+18 in 6 dB steps | 0 | Microphone gain applied to the analysis. **Negative values attenuate**, which is what a noisy room needs |
 
 `ledCount` is a property of the physical strip, so it is sent without a `layer`.
 Changing it re-initialises the strip driver: safe but not free, so the UI only sends

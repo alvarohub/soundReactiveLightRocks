@@ -26,8 +26,12 @@ public:
   void reset();
 
   // onsetStrength is the spectral flux of this frame (>= 0).
+  // level01 is the band level that produced it, 0..1: it is used as a silence
+  // gate, because in a quiet room the adaptive threshold sits at ~0 and noise
+  // would otherwise register as a beat.
   // sensitivityPct goes from 0 (only obvious beats) to 100 (very eager).
-  BeatInfo update(float onsetStrength, uint32_t dtMs, uint8_t sensitivityPct);
+  BeatInfo update(float onsetStrength, float level01, uint32_t dtMs,
+                  uint8_t sensitivityPct);
 
   uint16_t bpm() const { return bpm_; }
   float pulse() const { return pulse_; }

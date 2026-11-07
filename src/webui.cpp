@@ -110,7 +110,8 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=card>
 <div class=ptitle style="border-left-color:#3fb950">Microphone (global)<small>shared input for every layer</small></div>
 <div class="row first"><span>Microphone gain</span><b id=gainDbv>-</b></div>
-<input type=range id=gainDb min=0 max=18 step=6>
+<input type=range id=gainDb min=-24 max=18 step=6>
+<div class=hint>negative attenuates: use it when the room is too loud</div>
 <div class=stats>
 <div><span>Broadband</span><b id=sLvl>0%</b></div>
 <div><span>dBFS</span><b id=sDb>-</b></div>
@@ -720,7 +721,7 @@ function live(){
  $('sDb').textContent=ST.dbfs;
  $('sPk').textContent=ST.peakHz+' Hz';
  if(!MSGTMR)$('pmsg').textContent=ST.unsaved?'auto-saving…':'auto-saved';
- $('gainDbv').textContent=ST.gainDb+' dB';
+ $('gainDbv').textContent=(ST.gainDb>0?'+':'')+ST.gainDb+' dB';
  $('ld1').disabled=!ST.hasPreset0;
  $('ld2').disabled=!ST.hasPreset1;
  $('ld3').disabled=!ST.hasPreset2;
@@ -762,7 +763,10 @@ function post(u,refresh){
  });
 }
 $('host').textContent=location.host;
-$('gainDb').addEventListener('input',function(){$('gainDbv').textContent=$('gainDb').value+' dB';});
+$('gainDb').addEventListener('input',function(){
+ var v=+$('gainDb').value;
+ $('gainDbv').textContent=(v>0?'+':'')+v+' dB';
+});
 $('gainDb').addEventListener('change',function(){sendRaw('gainDb='+$('gainDb').value);flush();});
 [1,2,3].forEach(function(n){
  $('sp'+n).onclick=function(){flush();post('/api/preset?slot='+n+'&action=save',false).then(function(){flashMsg('Preset '+n+' saved');});};
@@ -870,8 +874,8 @@ String WebUi::stateJson() const {
   buf[0] = '\0';
   const uint32_t nowMs = millis();
 
-  appendf(buf, sizeof(buf), n, "{\"ssid\":\"%s\",\"gainDb\":%u,\"strips\":[",
-          kSsid, (unsigned)settings_->gainDb);
+  appendf(buf, sizeof(buf), n, "{\"ssid\":\"%s\",\"gainDb\":%d,\"strips\":[",
+          kSsid, (int)settings_->gainDb);
 
   for (size_t i = 0; i < kStripCount; i++) {
     const PhysicalStripSettings &p = settings_->phys[i];
@@ -947,6 +951,14 @@ void WebUi::applyArg(const char *name, uint8_t *dst) {
     return;
   }
   *dst = (uint8_t)constrain(server_.arg(name).toInt(), 0L, 255L);
+}
+
+void WebUi::applyArg(const char *name, int8_t *dst) {
+  if (!server_.hasArg(name)) {
+    return;
+  }
+  *dst = (int8_t)constrain(server_.arg(name).toInt(), (long)kMinGainDb,
+                           (long)kMaxGainDb);
 }
 
 void WebUi::applyArg(const char *name, uint16_t *dst) {

@@ -85,6 +85,18 @@ constexpr char kWifiSsid[] = WIFI_SSID;
 constexpr char kWifiPassword[] = WIFI_PASSWORD;
 
 // ---------------------------------------------------------------------------
+// Microphone gain.
+//
+// This is a software gain applied to the analysis, not a hardware register, so
+// it can go negative: in a loud room the microphone is over-sensitive and the
+// useful fix is attenuation, not just "less boost".
+// ---------------------------------------------------------------------------
+
+constexpr int8_t kMinGainDb = -24;
+constexpr int8_t kMaxGainDb = 18;
+constexpr int8_t kGainStepDb = 6;
+
+// ---------------------------------------------------------------------------
 // Web UI.
 // ---------------------------------------------------------------------------
 

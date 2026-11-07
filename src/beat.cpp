@@ -9,8 +9,15 @@ constexpr float kMeanTauMs = 900.0f;      // window of the adaptive threshold
 constexpr uint32_t kMinIntervalMs = 180;  // refractory: ceiling of 333 BPM
 constexpr uint32_t kMaxIntervalMs = 1500; // 40 BPM, below this it is not a tempo
 
-// Absolute floor so noise in a silent room cannot trigger a beat.
-constexpr float kMinStrength = 0.008f;
+// Absolute floor so noise in a silent room cannot trigger a beat. The sister
+// project used 0.02; this port had lowered it to 0.008, which let room noise
+// through once the adaptive threshold had decayed towards zero.
+constexpr float kMinStrength = 0.02f;
+
+// Band level below which the input counts as silence. 0.06 is just above the
+// noise floor of a quiet room on this microphone, so nothing can fire until
+// there is actual sound.
+constexpr float kSilenceLevel = 0.06f;
 
 constexpr float kSaturateMs = 1000000.0f; // refractory timer saturates here
 
@@ -34,13 +41,18 @@ void BeatDetector::reset() {
   }
 }
 
-BeatInfo BeatDetector::update(float onsetStrength, uint32_t dtMs,
-                              uint8_t sensPct) {
+BeatInfo BeatDetector::update(float onsetStrength, float level01,
+                              uint32_t dtMs, uint8_t sensPct) {
   if (dtMs == 0) {
     dtMs = 1;
   }
 
   BeatInfo out;
+
+  // Silence gate: no sound in this band means no beat, however the adaptive
+  // statistics happen to look. The statistics still track the (zero) signal so
+  // the first real onset after silence is not treated as a huge jump.
+  const bool silent = level01 < kSilenceLevel;
 
   pulse_ *= expf(-(float)dtMs / kPulseTauMs);
   if (pulse_ < 0.001f) {
@@ -54,15 +66,16 @@ BeatInfo BeatDetector::update(float onsetStrength, uint32_t dtMs,
     sinceBeatMs_ = (uint32_t)kSaturateMs;
   }
 
-  // If no beat has arrived for two full maximum intervals, drop the tempo lock
-  // so silence does not keep reporting a stale BPM forever.
-  if (sinceBeatMs_ > kMaxIntervalMs * 2u) {
+  // If no beat has arrived for two full maximum intervals, or the band went
+  // quiet, drop the tempo lock so silence never reports a stale BPM.
+  if (silent || sinceBeatMs_ > kMaxIntervalMs * 2u) {
     bpm_ = 0;
     ioiCount_ = 0;
     ioiPos_ = 0;
   }
 
-  const float x = onsetStrength > 0.0f ? onsetStrength : 0.0f;
+  const float x = silent ? 0.0f
+                         : (onsetStrength > 0.0f ? onsetStrength : 0.0f);
 
   if (!primed_) {
     // Start from the current signal instead of from zero, otherwise the first
@@ -79,7 +92,7 @@ BeatInfo BeatDetector::update(float onsetStrength, uint32_t dtMs,
   const float k = 3.2f - 2.6f * (float)sensPct / 100.0f;
   const float threshold = mean_ + k * sqrtf(var_);
 
-  const bool strongEnough = x > kMinStrength && x > mean_ * 1.10f;
+  const bool strongEnough = !silent && x > kMinStrength && x > mean_ * 1.10f;
   if (strongEnough && x > threshold && sinceBeatMs_ >= kMinIntervalMs) {
     out.onBeat = true;
     pulse_ = 1.0f;

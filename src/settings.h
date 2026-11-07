@@ -105,7 +105,7 @@ struct Settings {
 
   PhysicalStripSettings phys[kStripCount];
   LayerSettings layer[kStripCount][kMaxLayersPerStrip];
-  uint8_t gainDb = 0; // shared: there is one microphone
+  int8_t gainDb = 0; // shared: there is one microphone; negative = attenuate
 };
 
 inline uint16_t clampU16(int32_t v, uint16_t lo, uint16_t hi) {
@@ -160,8 +160,28 @@ inline void clampSettings(Settings &s) {
     }
   }
 
-  // The microphone only offers 0 / 6 / 12 / 18 dB.
-  s.gainDb = clampU8(((s.gainDb + 3) / 6) * 6, 0, 18);
+  // Quantised to the 6 dB step so the slider and the stored value agree, and
+  // clamped into a range that includes attenuation: in a noisy room a negative
+  // gain is the useful setting.
+  int g = (int)s.gainDb;
+  if (g < (int)kMinGainDb) {
+    g = (int)kMinGainDb;
+  }
+  if (g > (int)kMaxGainDb) {
+    g = (int)kMaxGainDb;
+  }
+  // Round to the nearest step. Done by hand rather than with (g + step/2) /
+  // step because C division truncates towards zero, which would map -24 to -18.
+  const int step = (int)kGainStepDb;
+  g = (g >= 0) ? ((g + step / 2) / step) * step
+               : -(((-g + step / 2) / step) * step);
+  if (g < (int)kMinGainDb) {
+    g = (int)kMinGainDb;
+  }
+  if (g > (int)kMaxGainDb) {
+    g = (int)kMaxGainDb;
+  }
+  s.gainDb = (int8_t)g;
 }
 
 // First-run values: each strip starts with one layer. Strip 1 takes the bass in

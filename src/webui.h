@@ -98,6 +98,7 @@ private:
   bool readIndex(const char *name, size_t limit, size_t &out);
   void applyArg(const char *name, uint8_t *dst);
   void applyArg(const char *name, uint16_t *dst);
+  void applyArg(const char *name, int8_t *dst);
 
   WebServer server_{80};
   Settings *settings_ = nullptr;

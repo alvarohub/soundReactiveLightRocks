@@ -469,6 +469,66 @@ a blind byte copy, because the old byte was an exclusive choice.
   for real whips; check that a whip does not fire continuously while the stick is
   carried around (retrigger gap is the only current guard).
 
+## 2026-11-07 (night) — Beat silence gate & negative mic gain
+
+### Reported
+
+1. "Beat detection is a little weird. In any case, when there is silence, it should
+   not trigger."
+2. "I also need the mic gain to be NEGATIVE (it is too sensitive in noisy places)."
+
+### Beat detection in silence — root cause
+
+My port had *lowered* the absolute onset floor from the sister project's `0.02` to
+`0.008`, and nothing looked at the actual signal level. The adaptive threshold is
+`mean + k·σ` over a ~900 ms window, so in a quiet room `mean → 0`, `var → 0` and the
+threshold sits at ~0: any noise excursion above `0.008` counted as a beat. Worse,
+`bandFlux()` multiplied by the mic gain and by `sqrt(255/bandBins)`, so a narrow
+layer amplified noise up to ~8×.
+
+Fixes:
+* floor restored to `0.02`;
+* **silence gate** — `BeatDetector::update()` now takes the band level and refuses
+  to fire below `0.06`, also dropping the tempo lock immediately;
+* `bandFlux()` no longer scaled by the mic gain, so attenuation does not deafen it.
+
+Verified by compiling `beat.cpp` on the host (it has no Arduino dependency) and
+running four cases:
+
+| case | before | after |
+|------|--------|-------|
+| silence, level 0.01 | fired | **0 beats** |
+| very quiet, level 0.03 | fired | **0 beats** |
+| 120 BPM clicks | ok | 42 beats in 22 s, **117 BPM** |
+| sustained loud tone | — | **0 beats** (no onset, so no beat — correct) |
+
+### Negative microphone gain
+
+`gainDb` was `uint8_t 0..18` with a comment about the hardware only offering
+0/6/12/18 dB — but it was always a **software** gain applied in `audio_fft.cpp`, so
+negative values cost nothing. It is now `int8_t`, −24…+18 dB in 6 dB steps.
+
+One trap: quantising with `(g + step/2) / step * step` truncates towards zero, so
+−24 became −18. Fixed by rounding by hand with the sign handled explicitly, and
+checked the mapping for every step from −30 to +24.
+
+The blob still stores the gain in one byte; it is cast through `uint8_t`/`int8_t`
+explicitly so the sign survives as two's complement.
+
+### Verified
+
+- Both envs build, no warnings. RAM 28.9 % / 29.3 %.
+- Host tests for the beat detector (table above) and for the gain quantiser.
+- Browser: gain slider is `min=-24 max=18 step=6`, label reads `-24 dB`, the hint
+  explains attenuation, and moving it sends `gainDb=-24` to the board.
+
+### Open
+
+- `kSilenceLevel` (0.06) and `kMinStrength` (0.02) are reasoned, not measured.
+  On hardware they should be checked at gain 0 and at −24 dB in a quiet room.
+- The threshold trigger has no equivalent silence gate; if the user reports false
+  threshold fires in silence, the same idea applies there.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:
