@@ -326,6 +326,69 @@ The name "Light Rocks" itself turned out to be correct, so it stays.
   `HANDOFF.md` Priority 2 for the planned shape.
 
 
+## 2026-11-07 (later) — Physical strips become containers of light layers
+
+### The insight
+
+The user reframed the model after the pad work landed:
+
+> "the real object is not the physical strip... one physical strip is a kind of
+> container that can contain one, two, three more strips, meaning this object with
+> all its functions for the lights."
+
+So a **physical strip** is hardware (pin, RMT channel, LED count, one frame buffer)
+and a **light layer** is the thing that glows (band, trigger input, effect, colour,
+weight). Several layers share one strip and blend in the same buffer.
+
+### Why the codebase was already shaped for this
+
+`LedStrip::buf_` is **linear float** RGB and `addRing` / `addFill` / `addSparkles`
+all *accumulate*. Gamma is applied once, in `show()`. That was the original
+argument for keeping blobs out of the driver (ARCHITECTURE.md), and it means layers
+merge correctly for free: overlaps add as light, hue is preserved, and >1.0 is
+scaled proportionally rather than clamped per channel.
+
+### Decisions
+
+| Decision | Why |
+|----------|-----|
+| `PhysicalStripSettings` vs `LayerSettings` as separate types | Makes the two roles explicit in the type system instead of overloading one struct. |
+| Max **4 layers** per strip | Enough for "several beams"; keeps the blob 202 bytes and the engine array ~2 KB. |
+| `ledCount` passed *into* the engine instead of stored | It belongs to the container, not the layer. The engine needs it only to compute spawn positions. |
+| Per-layer `intensityPct` | Lets layers be balanced without touching their colours or brightness. |
+| `solo` is runtime-only | It is a preview tool, not a saved property. Kept out of the blob deliberately. |
+| LCD shows one row + one merged meter per physical strip | 8 rows of per-layer detail does not fit 135 px legibly; the phone has the room. |
+| `LayerEngine` (files renamed from `blob_mode.*` to `layer.*`) | The name now matches the object. |
+| Add/remove layer re-syncs state **after** the params POST completes | Keeps the strict single-in-flight HTTP rule; a follow-up fetch hooks onto the flush completion. |
+
+### Done
+
+- [x] `settings.h/.cpp`: container + layer types, blob **v5** (202 bytes) with v4/v3 migration.
+- [x] `layer.h/.cpp`: `LayerEngine` (renamed, intensity-aware, `ledCount` passed in).
+- [x] `main.cpp`: per-layer engines and beat detectors, solo support, `clear → render all → show`.
+- [x] `display.h/.cpp`: rewritten for containers (dominant-layer band, merged meter, layer-count hint).
+- [x] `webui.h/.cpp`: `?strip=&layer=` addressing, `layerCount`/`solo` on the container, nested layer tabs, add/remove/solo, pad overlay **one group per layer**.
+- [x] Docs: SPEC (§5 rewritten, §7 split into container/layer tables, §6 solo, API rows), HANDOFF, this entry.
+
+### Verified
+
+- `pio run` and `pio run -e m5stick-c-plus2`: **both SUCCESS**, no warnings in project
+  sources. RAM 28.4 % / 28.8 %, Flash 32.3 % / 33.7 %.
+- Page JS `node --check`ed; tags balanced.
+- Browser test against a stateful mock: strip/layer tabs, layer switch updates title /
+  band / colour / intensity, **+ Add layer** grows to 3 and auto-selects the new
+  layer, **Solo** toggles to `Solo ON`, pad overlay shows one colour-coded group per
+  layer, and a pad tap issues `POST /api/tap?strip=0&layer=1&effect=0&down=1`.
+- Two rendered bugs found and fixed this way: `&middot;` used inside `textContent`,
+  and the strip tab showing "on" regardless of layer state.
+
+### Open / next
+
+- **On hardware**: beat lock on real music, hold feel, and current draw with several
+  layers at full white on one 5 V supply.
+- Ideas this unlocks: different `fadeMs` per layer to fake reverb, one beat layer plus
+  one threshold layer for kick + snare, a slow "bed" flash layer under fast jets.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:
@@ -336,8 +399,8 @@ The name "Light Rocks" itself turned out to be correct, so it stays.
   - `display.h` / `display.cpp` now own the whole LCD renderer.
   - `settings.h` / `settings.cpp` merged `settings_blob.*` + `store.*`.
   - `main.cpp` reduced to orchestration (`setup`, `loop`, `renderStrip`, `handleButtons`).
-- [ ] **Multi-layer strips ("virtual strips")** — physical strips become containers
-  for several independent light layers; see `HANDOFF.md` Priority 2.
+- [x] **Multi-layer strips** — **DONE 2026-11-07**: physical strips are containers for
+  up to 4 independent light layers (blob v5, nested Layer tabs, solo, per-layer pads).
 
 ---
 

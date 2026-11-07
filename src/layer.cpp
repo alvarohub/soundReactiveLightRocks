@@ -1,23 +1,23 @@
-#include "blob_mode.h"
+#include "layer.h"
 
 #include <stddef.h>
 
 namespace {
 
-inline float initialPos(const StripSettings &s) {
-  if (s.reverse == StripSettings::kReverse && s.ledCount > 1) {
-    return (float)(s.ledCount - 1);
+inline float initialPos(const LayerSettings &s, uint16_t ledCount) {
+  if (s.reverse == LayerSettings::kReverse && ledCount > 1) {
+    return (float)(ledCount - 1);
   }
   return 0.0f;
 }
 
-inline int8_t initialDir(const StripSettings &s) {
-  return s.reverse == StripSettings::kReverse ? -1 : 1;
+inline int8_t initialDir(const LayerSettings &s) {
+  return s.reverse == LayerSettings::kReverse ? -1 : 1;
 }
 
 } // namespace
 
-void BlobEngine::reset() {
+void LayerEngine::reset() {
   for (size_t i = 0; i < kMaxBlobs; i++) {
     blobs_[i].active = false;
     blobs_[i].amp = 0.0f;
@@ -27,6 +27,7 @@ void BlobEngine::reset() {
   }
   flashAmp_ = 0.0f;
   sparkleAmp_ = 0.0f;
+  peak_ = 0.0f;
   held_ = false;
   heldMs_ = 0;
   spawned_ = false;
@@ -34,13 +35,13 @@ void BlobEngine::reset() {
   lastHoldJetMs_ = 0;
 }
 
-Blob &BlobEngine::allocSlot() {
+Blob &LayerEngine::allocSlot() {
   for (size_t i = 0; i < kMaxBlobs; i++) {
     if (!blobs_[i].active) {
       return blobs_[i];
     }
   }
-  // Pool full: recycle the dimmest active blob so the strip stays continuous.
+  // Pool full: recycle the dimmest active blob so the layer stays continuous.
   size_t dimmest = 0;
   for (size_t i = 1; i < kMaxBlobs; i++) {
     if (blobs_[i].amp < blobs_[dimmest].amp) {
@@ -50,18 +51,17 @@ Blob &BlobEngine::allocSlot() {
   return blobs_[dimmest];
 }
 
-void BlobEngine::spawnJet(const StripSettings &s) {
+void LayerEngine::spawnJet(const LayerSettings &s, uint16_t ledCount) {
   Blob &b = allocSlot();
   b.active = true;
   b.amp = 1.0f;
-  b.pos = initialPos(s);
+  b.pos = initialPos(s, ledCount);
   b.dir = initialDir(s);
   b.burst = 0;
 }
 
-void BlobEngine::spawnBurst(const StripSettings &s) {
-  const float center =
-      s.ledCount > 1 ? (float)(s.ledCount - 1) * 0.5f : 0.0f;
+void LayerEngine::spawnBurst(const LayerSettings &s, uint16_t ledCount) {
+  const float center = ledCount > 1 ? (float)(ledCount - 1) * 0.5f : 0.0f;
   for (int8_t dir = -1; dir <= 1; dir += 2) {
     Blob &b = allocSlot();
     b.active = true;
@@ -72,30 +72,30 @@ void BlobEngine::spawnBurst(const StripSettings &s) {
   }
 }
 
-void BlobEngine::triggerEffect(uint8_t effect, const StripSettings &s) {
+void LayerEngine::triggerEffect(uint8_t effect, const LayerSettings &s,
+                                uint16_t ledCount) {
   switch (effect) {
-  case StripSettings::kEffectFlash:
+  case LayerSettings::kEffectFlash:
     flashAmp_ = 1.0f;
     break;
-  case StripSettings::kEffectBurst:
-    spawnBurst(s);
+  case LayerSettings::kEffectBurst:
+    spawnBurst(s, ledCount);
     break;
-  case StripSettings::kEffectSparkle:
+  case LayerSettings::kEffectSparkle:
     sparkleAmp_ = 1.0f;
     break;
-  case StripSettings::kEffectJet:
+  case LayerSettings::kEffectJet:
   default:
-    spawnJet(s);
+    spawnJet(s, ledCount);
     break;
   }
 }
 
-void BlobEngine::trigger(const StripSettings &s) {
-  triggerEffect(s.effect, s);
+void LayerEngine::trigger(const LayerSettings &s, uint16_t ledCount) {
+  triggerEffect(s.effect, s, ledCount);
 }
 
-void BlobEngine::setPadHeld(bool held, uint8_t effect, const StripSettings &s) {
-  (void)s;
+void LayerEngine::setPadHeld(bool held, uint8_t effect) {
   if (held) {
     if (!held_ || heldEffect_ != effect) {
       lastHoldJetMs_ = 0;
@@ -110,11 +110,11 @@ void BlobEngine::setPadHeld(bool held, uint8_t effect, const StripSettings &s) {
   }
 }
 
-void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
-                        float dtSec, const StripSettings &s) {
-  // amp goes from 1 to 0 across fadeMs.
+void LayerEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
+                         float dtSec, const LayerSettings &s,
+                         uint16_t ledCount) {
   const float decayPerSec = 1000.0f / (float)s.fadeMs;
-  const float laps = (float)s.ledCount;
+  const float laps = (float)ledCount;
   const float maxPos = laps > 1.0f ? (laps - 1.0f) : 0.0f;
   const float halfWidth = (float)s.blobLeds * 0.5f;
   const uint32_t dtMs = (uint32_t)(dtSec * 1000.0f + 0.5f);
@@ -132,23 +132,22 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
 
   // Sustain or repeat while a fingertip drum pad is held down.
   if (held_) {
-    if (heldEffect_ == StripSettings::kEffectFlash) {
+    if (heldEffect_ == LayerSettings::kEffectFlash) {
       flashAmp_ = 1.0f;
-    } else if (heldEffect_ == StripSettings::kEffectSparkle) {
+    } else if (heldEffect_ == LayerSettings::kEffectSparkle) {
       sparkleAmp_ = 1.0f;
     } else {
       const uint32_t gapMs = s.retriggerMs >= 140 ? s.retriggerMs : 140;
       if (lastHoldJetMs_ == 0) {
         lastHoldJetMs_ = nowMs;
       } else if ((uint32_t)(nowMs - lastHoldJetMs_) >= gapMs) {
-        triggerEffect(heldEffect_, s);
+        triggerEffect(heldEffect_, s, ledCount);
         lastHoldJetMs_ = nowMs;
       }
     }
   }
 
-  // Decay full-strip flash when not held.
-  if (!(held_ && heldEffect_ == StripSettings::kEffectFlash) &&
+  if (!(held_ && heldEffect_ == LayerSettings::kEffectFlash) &&
       flashAmp_ > 0.0f) {
     flashAmp_ -= decayPerSec * dtSec;
     if (flashAmp_ <= kBlobEpsilon) {
@@ -156,8 +155,7 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
     }
   }
 
-  // Decay sparkle shower when not held.
-  if (!(held_ && heldEffect_ == StripSettings::kEffectSparkle) &&
+  if (!(held_ && heldEffect_ == LayerSettings::kEffectSparkle) &&
       sparkleAmp_ > 0.0f) {
     sparkleAmp_ -= decayPerSec * dtSec;
     if (sparkleAmp_ <= kBlobEpsilon) {
@@ -172,9 +170,9 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
     }
 
     if (b.burst) {
-      // Center-outward shockwave: each half races from the middle toward its end.
+      // Centre-outward shockwave: each half races from the middle to its end.
       b.pos += (float)s.speed * (float)b.dir * dtSec;
-      if (s.loop && s.reverse == StripSettings::kPingPong) {
+      if (s.loop && s.reverse == LayerSettings::kPingPong) {
         if (b.dir > 0 && b.pos >= maxPos) {
           b.pos = maxPos;
           b.dir = -1;
@@ -188,7 +186,7 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
         b.active = false;
         continue;
       }
-    } else if (s.reverse == StripSettings::kPingPong) {
+    } else if (s.reverse == LayerSettings::kPingPong) {
       if (b.dir == 0) {
         b.dir = 1;
       }
@@ -209,14 +207,13 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
             b.dir = 1;
           }
         } else if (b.pos + halfWidth < 0.0f) {
-          // One-shot ping-pong: completed 0 -> end -> 0 round-trip.
           b.amp = 0.0f;
           b.active = false;
           continue;
         }
       }
     } else {
-      const float dir = (s.reverse == StripSettings::kReverse) ? -1.0f : 1.0f;
+      const float dir = (s.reverse == LayerSettings::kReverse) ? -1.0f : 1.0f;
       b.pos += (float)s.speed * dir * dtSec;
       if (s.loop) {
         while (b.pos < 0.0f) {
@@ -226,7 +223,7 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
           b.pos -= laps;
         }
       } else {
-        // One-shot mode: disappear once the trailing edge leaves the strip.
+        // One-shot: disappear once the trailing edge leaves the strip.
         if ((dir > 0.0f && (b.pos - halfWidth >= laps)) ||
             (dir < 0.0f && (b.pos + halfWidth < 0.0f))) {
           b.amp = 0.0f;
@@ -243,14 +240,14 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
     }
   }
 
-  // Evaluate trigger source for this strip:
-  //   - kManual:    microphone ignored (pads / button A only)
-  //   - kBeat:      triggered by the per-strip beat detector
-  //   - kThreshold: triggered when bandLevel >= thresholdPct
+  // Trigger inputs: the microphone path or the pads, never both.
+  //   kManual    -> pads / BtnA only
+  //   kBeat      -> per-layer beat detector
+  //   kThreshold -> band level reaches thresholdPct
   bool shouldTrigger = false;
-  if (s.mode == StripSettings::kBeat) {
+  if (s.mode == LayerSettings::kBeat) {
     shouldTrigger = onBeat;
-  } else if (s.mode == StripSettings::kThreshold) {
+  } else if (s.mode == LayerSettings::kThreshold) {
     shouldTrigger = (bandLevel * 100.0f >= (float)s.thresholdPct);
   }
 
@@ -258,42 +255,53 @@ void BlobEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
     return;
   }
   if (!s.retrigger) {
-    // Retrigger disabled: do not trigger while any effect is still active.
     if (activeCount() > 0) {
-      return;
+      return; // single: wait until this layer is idle again
     }
   } else if (spawned_ && (uint32_t)(nowMs - lastSpawnMs_) < s.retriggerMs) {
     return;
   }
 
-  triggerEffect(s.effect, s);
+  triggerEffect(s.effect, s, ledCount);
   spawned_ = true;
   lastSpawnMs_ = nowMs;
 }
 
-void BlobEngine::render(LedStrip &strip, const StripSettings &s) const {
+void LayerEngine::render(LedStrip &strip, const LayerSettings &s) {
+  const float w = (float)s.intensityPct / 100.0f;
+  peak_ = 0.0f;
+
   if (flashAmp_ > 0.0f) {
-    strip.addFill(flashAmp_, s.r, s.g, s.b);
+    strip.addFill(flashAmp_ * w, s.r, s.g, s.b);
+    peak_ = flashAmp_ * w;
   }
   if (sparkleAmp_ > 0.0f) {
-    strip.addSparkles(sparkleAmp_, sparkleSeed_, s.r, s.g, s.b);
+    strip.addSparkles(sparkleAmp_ * w, sparkleSeed_, s.r, s.g, s.b);
+    if (sparkleAmp_ * w > peak_) {
+      peak_ = sparkleAmp_ * w;
+    }
   }
 
-  // blobLeds is the full width of the light group, so half of it each side of the
-  // centre. Ping-pong and center bursts do not wrap across LED 0.
+  // blobLeds is the full width of the light group, so half each side of the
+  // centre. Ping-pong and centre bursts do not wrap across LED 0.
   const float halfWidth = (float)s.blobLeds * 0.5f;
   const bool wrapSeam =
-      (s.loop != 0) && (s.reverse != StripSettings::kPingPong);
+      (s.loop != 0) && (s.reverse != LayerSettings::kPingPong);
   for (size_t i = 0; i < kMaxBlobs; i++) {
     const Blob &b = blobs_[i];
-    if (b.active) {
-      strip.addRing(b.pos, halfWidth, b.amp, s.r, s.g, s.b,
-                    b.burst ? false : wrapSeam);
+    if (!b.active) {
+      continue;
+    }
+    const float amp = b.amp * w;
+    strip.addRing(b.pos, halfWidth, amp, s.r, s.g, s.b,
+                  b.burst ? false : wrapSeam);
+    if (amp > peak_) {
+      peak_ = amp;
     }
   }
 }
 
-size_t BlobEngine::activeCount() const {
+size_t LayerEngine::activeCount() const {
   size_t n = 0;
   for (size_t i = 0; i < kMaxBlobs; i++) {
     if (blobs_[i].active) {

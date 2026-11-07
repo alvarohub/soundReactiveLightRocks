@@ -11,7 +11,7 @@ const char kPage[] PROGMEM = R"PAGE(<!doctype html>
 <html lang=en>
 <head>
 <meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1">
+<meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Light Rocks</title>
 <style>
 :root{color-scheme:dark}
@@ -22,28 +22,10 @@ h1{margin:0 0 10px;font-size:1.15rem;font-weight:600;display:flex;justify-conten
 h1 span{font-size:.72rem;color:#8b949e;font-weight:400}
 .padopen{width:100%;padding:12px 14px;margin-bottom:10px;border-radius:12px;border:2px solid #58a6ff;background:linear-gradient(135deg,#16233a,#171b21);color:#f0f6fc;font-size:1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:pointer;touch-action:manipulation}
 .padopen small{font-weight:500;font-size:.76rem;color:#8b949e}
-#padscreen{position:fixed;inset:0;z-index:100;background:#0b0e13;display:none;flex-direction:column;padding:8px 10px 10px;gap:8px;user-select:none;-webkit-user-select:none;touch-action:none}
-#padscreen.open{display:flex}
-.padtop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:none}
-.padtop b{font-size:.98rem;color:#f0f6fc}
-.padclose{padding:7px 14px;border-radius:9px;border:1px solid #3a424d;background:#21262e;color:#e6edf3;font-size:.86rem;font-weight:600;cursor:pointer}
-.pgrp{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:14px;border:2px solid var(--c,#58a6ff);background:#141820;padding:7px 9px;gap:6px;box-shadow:inset 0 0 22px rgba(0,0,0,.6)}
-.pghdr{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.84rem;flex:none}
-.pghdr b{color:#f0f6fc;display:flex;align-items:center;gap:6px}
-.pdot{width:11px;height:11px;border-radius:50%;background:var(--c,#58a6ff);display:inline-block;box-shadow:0 0 8px var(--c,#58a6ff)}
-.pghdr span{color:#8b949e;font-size:.76rem;font-variant-numeric:tabular-nums}
-.pgbar{height:5px;border-radius:3px;background:#21262e;overflow:hidden;flex:none}
-.pgbar i{display:block;height:100%;width:0;background:var(--c,#58a6ff);transition:width 60ms linear}
-.pgrid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px}
-.pad{position:relative;border-radius:12px;border:2px solid var(--c,#58a6ff);background:radial-gradient(circle at 38% 32%,rgba(255,255,255,.13),rgba(15,17,21,.93) 72%);color:#f0f6fc;font-weight:700;font-size:1.02rem;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;box-shadow:0 0 14px -5px var(--c,#58a6ff),inset 0 0 16px rgba(0,0,0,.75);transition:transform 55ms ease,box-shadow 80ms ease,background 80ms ease}
-.pad small{font-size:.66rem;font-weight:500;color:#9da7b3;margin-top:2px;letter-spacing:.02em}
-.pad.hit{transform:scale(.95);background:radial-gradient(circle at 50% 50%,#fff 0%,var(--c,#58a6ff) 58%,#141820 100%);box-shadow:0 0 26px 3px var(--c,#58a6ff),inset 0 0 12px #fff;color:#0b0e13}
-.pad.hit small{color:#0b0e13}
 .card{background:#171b21;border:1px solid #262c36;border-radius:12px;padding:12px 14px;margin-bottom:10px}
 .row{display:flex;justify-content:space-between;align-items:baseline;margin:9px 0 2px;font-size:.9rem;color:#9da7b3}
 .row.first{margin-top:0}
 .row b{color:#e6edf3;font-variant-numeric:tabular-nums;font-weight:600}
-.row b.on{color:#7ee787}
 .hint{color:#8b949e;font-size:.76rem;margin:2px 0 4px}
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:26px;background:transparent;margin:0}
 input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:#2b323c}
@@ -64,6 +46,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .tbtn{padding:6px 10px;border-radius:8px;border:1px solid #3a424d;background:#21262e;color:#8b949e;font-size:.82rem;font-weight:600;white-space:nowrap;flex:none}
 .tbtn.on{background:#17301e;border-color:#2ea043;color:#7ee787}
 .tbtn.off{background:#2b1d1d;border-color:#6b2b2b;color:#ff9d95}
+.tbtn.solo{background:#2a2410;border-color:#d29922;color:#e3b341}
 .stepbtn{width:40px;height:34px;border-radius:8px;border:1px solid #3a424d;background:#21262e;color:#e6edf3;font-size:1rem;font-weight:700;flex:none;touch-action:manipulation}
 .stepbtn:active{background:#30363d}
 .seg{display:flex;gap:8px;margin-top:4px}
@@ -71,6 +54,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .seg button.on{background:#17301e;border-color:#2ea043;color:#7ee787}
 .seg button.off{background:#2b1d1d;border-color:#6b2b2b;color:#ff9d95}
 .seg button.sel{outline:3px solid #58a6ff;outline-offset:2px}
+.seg.tight button{padding:8px 4px;font-size:.84rem}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
 .stats div{background:#21262e;border-radius:9px;padding:8px 4px;text-align:center}
 .stats span{display:block;font-size:.68rem;letter-spacing:.04em;color:#8b949e;text-transform:uppercase}
@@ -88,21 +72,39 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 #pmsg{color:#8b949e;font-size:.78rem;font-weight:400}
 .ptitle{margin:0 0 8px;padding-left:9px;border-left:4px solid #58a6ff;font-weight:600;color:#f0f6fc}
 .ptitle small{display:block;font-weight:400;font-size:.76rem;color:#8b949e;margin-top:2px}
+/* ---- full-screen pad view ---- */
+#padscreen{position:fixed;inset:0;z-index:100;background:#0b0e13;display:none;flex-direction:column;padding:8px 10px 10px;gap:6px;user-select:none;-webkit-user-select:none;touch-action:none;overflow-y:auto}
+#padscreen.open{display:flex}
+.padtop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:none}
+.padtop b{font-size:.98rem;color:#f0f6fc}
+.padclose{padding:7px 14px;border-radius:9px;border:1px solid #3a424d;background:#21262e;color:#e6edf3;font-size:.86rem;font-weight:600;cursor:pointer}
+.pgrp{flex:none;border-radius:14px;border:2px solid var(--c,#58a6ff);background:#141820;padding:7px 9px;box-shadow:inset 0 0 22px rgba(0,0,0,.6)}
+.pghdr{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.84rem;margin-bottom:5px}
+.pghdr b{color:#f0f6fc;display:flex;align-items:center;gap:6px}
+.pdot{width:11px;height:11px;border-radius:50%;background:var(--c,#58a6ff);display:inline-block;box-shadow:0 0 8px var(--c,#58a6ff)}
+.pghdr span{color:#8b949e;font-size:.74rem;font-variant-numeric:tabular-nums}
+.pgbar{height:4px;border-radius:3px;background:#21262e;overflow:hidden;margin-bottom:6px}
+.pgbar i{display:block;height:100%;width:0;background:var(--c,#58a6ff);transition:width 60ms linear}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.pad{position:relative;min-height:60px;border-radius:11px;border:2px solid var(--c,#58a6ff);background:radial-gradient(circle at 38% 32%,rgba(255,255,255,.13),rgba(15,17,21,.93) 72%);color:#f0f6fc;font-weight:700;font-size:.98rem;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;box-shadow:0 0 14px -5px var(--c,#58a6ff),inset 0 0 16px rgba(0,0,0,.75);transition:transform 55ms ease,box-shadow 80ms ease,background 80ms ease}
+.pad small{font-size:.6rem;font-weight:500;color:#9da7b3;margin-top:1px;letter-spacing:.02em}
+.pad.hit{transform:scale(.95);background:radial-gradient(circle at 50% 50%,#fff 0%,var(--c,#58a6ff) 58%,#141820 100%);box-shadow:0 0 26px 3px var(--c,#58a6ff),inset 0 0 12px #fff;color:#0b0e13}
+.pad.hit small{color:#0b0e13}
 </style>
 </head>
 <body>
 <h1>Light Rocks <span id=host></span></h1>
-<button type=button class=padopen id=openpads><span>Full-Screen Effect Pads</span><small>Strip 1 &amp; Strip 2 live play &rarr;</small></button>
+<button type=button class=padopen id=openpads><span>Full-Screen Effect Pads</span><small>one group per layer &rarr;</small></button>
 <div id=padscreen>
  <div class=padtop>
   <b>Live Effect Pads</b>
   <button type=button class=padclose id=closepads>&times; Back to Controls</button>
  </div>
- <div id=padgroups style="flex:1;min-height:0;display:flex;flex-direction:column;gap:8px"></div>
+ <div id=padgroups></div>
 </div>
 
 <div class=card>
-<div class=ptitle style="border-left-color:#3fb950">Microphone (global)<small>shared input for both strips</small></div>
+<div class=ptitle style="border-left-color:#3fb950">Microphone (global)<small>shared input for every layer</small></div>
 <div class="row first"><span>Microphone gain</span><b id=gainDbv>-</b></div>
 <input type=range id=gainDb min=0 max=18 step=6>
 <div class=stats>
@@ -113,10 +115,17 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 </div>
 
 <div class=card>
-<div class="row first"><span>Select strip to edit</span><b id=tabhint style="color:#8b949e;font-weight:400;font-size:.76rem"></b></div>
+<div class="row first"><span>Physical strip</span><b id=tabhint style="color:#8b949e;font-weight:400;font-size:.76rem"></b></div>
 <div class=seg id=pick></div>
-<div class=ptitle id=ptitle style="margin-top:12px"></div>
-<div class=row><span>Power</span><label class=sw><input type=checkbox id=pwr><i></i></label></div>
+<div class="row" style="margin-top:12px"><span>Light layers inside</span><b id=lcv>-</b></div>
+<div class=seg id=layertabs></div>
+<div class=rline style="margin-top:8px">
+<button type=button id=addlayer class=tbtn>+ Add layer</button>
+<button type=button id=remlayer class=tbtn>Remove</button>
+<button type=button id=solobtn class=tbtn style="margin-left:auto">Solo</button>
+</div>
+<div class=ptitle id=ptitle style="margin:12px 0 8px"></div>
+<div class=row><span>Layer power</span><label class=sw><input type=checkbox id=pwr><i></i></label></div>
 </div>
 
 <div class=card id=trigbox></div>
@@ -140,39 +149,11 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=hint style="text-align:center">Short press A: test trigger &middot; hold A: Wi-Fi on/off &middot; B: mic gain</div>
 
 <script>
-var TRIGSPEC=[
-{k:'centerHz',n:'Band centre',min:65,max:7600,st:5,u:' Hz'},
-{k:'widthHz',n:'Band width',min:40,max:16000,st:10,u:' Hz'}
-];
-var BEATSPEC=[
-{k:'beatSensitivityPct',n:'Beat sensitivity',min:0,max:100,st:1,u:'%'}
-];
-var DISPSPEC=[
-{k:'brightnessPct',n:'Max brightness',min:1,max:100,st:1,u:'%'}
-];
-var ANIMSPEC=[
-{k:'blobLeds',n:'Blob / Jet length',min:1,max:1000,st:1,u:' LEDs'},
-{k:'speed',n:'Speed',min:1,max:500,st:1,u:' LEDs/s'},
-{k:'fadeMs',n:'Fade time',min:50,max:10000,st:50,u:' ms'},
-{k:'retriggerMs',n:'Retrigger gap',min:0,max:2000,st:10,u:' ms'}
-];
-var CALSPEC=[
-{k:'ledCount',n:'LEDs on this strip',min:1,max:1000,st:1,u:''}
-];
-var ALLSPEC=TRIGSPEC.concat(BEATSPEC).concat(DISPSPEC).concat(ANIMSPEC).concat(CALSPEC);
-var PADEFFS=[
-{e:1,n:'FLASH',d:'Full strip · hold to sustain'},
-{e:0,n:'JET',d:'Shooting blob · hold to stream'},
-{e:2,n:'BURST',d:'Center shockwave split'},
-{e:3,n:'SPARKLE',d:'Glitter shower · hold'}
-];
-var SEL=0,ST=null,BUILT=false,SEEDED=false,PEND={},PTMR=0,MODE=0,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0;
+var S=0,L=0,ST=null,BUILT=false,SEEDED=false,MODE=0,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0,SOLO=-1;
 var CUR_COL='#ff6a00',WHEEL_BG=null,WX=76,WY=76,WDRAG=false,TDRAG=-1,MSGTMR=0;
-var INFLIGHT=false,POLL_BUSY=false,HOLD_TMRS={};
+var INFLIGHT=false,POLL_BUSY=false,LAST=null,PTMR=0,AFTER=null,HOLD_TMRS={};
 
 function $(i){return document.getElementById(i);}
-function colOf(s){return '#'+s.color;}
-function nameOf(i){return 'Strip '+(i+1);}
 function hex2(n){var s=Math.round(n).toString(16);return s.length<2?'0'+s:s;}
 function hsvToRgb(h,s,v){
  var c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c,r=0,g=0,b=0;
@@ -191,106 +172,54 @@ function rgbToHs(r,g,b){
  }
  return [h,s];
 }
+function phys(){return ST&&ST.strips?ST.strips[S]:null;}
+function cur(){var p=phys();return p&&p.layers?p.layers[L]:null;}
+function colOf(layer){return '#'+(layer&&layer.color?layer.color:'808080');}
+function layerCount(){var p=phys();return p?Math.max(1,p.layerCount):1;}
+function nameOf(i){return 'Strip '+(i+1);}
 
-function hasPending(){for(var k in PEND)return true;return false;}
-function pending(){
- var q='',k;
- for(k in PEND){q+='&'+k+'='+encodeURIComponent(PEND[k]);}
- PEND={};
- return q;
-}
+/* ---- one request in flight, latest value wins ---- */
 function flush(){
  if(PTMR){clearTimeout(PTMR);PTMR=0;}
- if(INFLIGHT)return;
- var q=pending();
- if(!q)return;
+ if(INFLIGHT||!LAST)return;
+ var url=LAST;LAST=null;
  INFLIGHT=true;
+ /* Strict single-in-flight: a follow-up fetch only runs once the params POST
+    has completed, so the board never sees two sockets at once. */
  var done=function(){
   INFLIGHT=false;
-  if(hasPending()&&!PTMR){PTMR=setTimeout(function(){PTMR=0;flush();},45);}
+  if(LAST){if(!PTMR)PTMR=setTimeout(function(){PTMR=0;flush();},45);return;}
+  if(AFTER){var f=AFTER;AFTER=null;f();}
  };
- fetch('/api/params?strip='+SEL+q,{method:'POST'}).then(done,done);
+ fetch('/api/params?'+url,{method:'POST'}).then(done,done);
 }
-function send(k,v,now){
- PEND[k]=v;
- if(ST&&ST.strips&&ST.strips[SEL]){
-  ST.strips[SEL][k]=k==='color'?String(v):Number(v);
-  ST.unsaved=1;
-  live();
- }
- if(now){flush();return;}
+function syncState(then){
+ AFTER=function(){
+  fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
+   apply(s);if(then)then();
+  }).catch(function(){});
+ };
+ flush();
+}
+function sendRaw(q){
+ LAST=q;
  if(!PTMR&&!INFLIGHT){PTMR=setTimeout(function(){PTMR=0;flush();},55);}
 }
+function sendLayer(k,v){sendRaw('strip='+S+'&layer='+L+'&'+k+'='+encodeURIComponent(v));}
+function sendPhys(k,v){sendRaw('strip='+S+'&'+k+'='+encodeURIComponent(v));}
 
-function pickThr(idx,e,commit){
+/* ---- threshold drag on the live level meter ---- */
+function pickThr(e,commit){
  var bar=$('bar0'),rect=bar.getBoundingClientRect();
  var pct=Math.round(((e.clientX-rect.left)/rect.width)*100);
  if(pct<0)pct=0;if(pct>100)pct=100;
- if(ST&&ST.strips[SEL])ST.strips[SEL].thresholdPct=pct;
- send('thresholdPct',pct,!!commit);
+ var c=cur();if(c)c.thresholdPct=pct;
+ sendLayer('thresholdPct',pct);
+ if(commit)flush();
  refreshTitle();
 }
 
-function padHit(sIdx,eff,down){
- var id='pad_'+sIdx+'_'+eff,el=$(id),key=sIdx+'_'+eff;
- if(down){
-  if(el)el.classList.add('hit');
-  fetch('/api/tap?strip='+sIdx+'&effect='+eff+'&down=1',{method:'POST'}).catch(function(){});
-  if(HOLD_TMRS[key])clearInterval(HOLD_TMRS[key]);
-  HOLD_TMRS[key]=setInterval(function(){
-   fetch('/api/tap?strip='+sIdx+'&effect='+eff+'&down=1',{method:'POST'}).catch(function(){});
-  },900);
- }else{
-  if(HOLD_TMRS[key]){clearInterval(HOLD_TMRS[key]);HOLD_TMRS[key]=0;}
-  if(el&&el.classList.contains('hit')){
-   el.classList.remove('hit');
-   fetch('/api/tap?strip='+sIdx+'&effect='+eff+'&down=0',{method:'POST'}).catch(function(){});
-  }
- }
-}
-
-function buildMeters(n){
- var p='',pg='';
- for(var i=0;i<n;i++){
-  p+='<button id=sel'+i+'>Strip '+(i+1)+'</button>';
-  pg+='<div class=pgrp id=pgrp'+i+'>'
-   +'<div class=pghdr><b><i class=pdot id=pdot'+i+'></i>Strip '+(i+1)+'</b><span id=pgst'+i+'>-</span></div>'
-   +'<div class=pgbar><i id=pgb'+i+'></i></div>'
-   +'<div class=pgrid>';
-  PADEFFS.forEach(function(pe){
-   pg+='<button type=button class=pad id=pad_'+i+'_'+pe.e+'><span>'+pe.n+'</span><small>'+pe.d+'</small></button>';
-  });
-  pg+='</div></div>';
- }
- $('pick').innerHTML=p;
- $('padgroups').innerHTML=pg;
- for(var j=0;j<n;j++){
-  (function(k){
-   $('sel'+k).onclick=function(){
-    if(CALIB){CALIB=0;send('calib',0,true);}
-    flush();
-    SEL=k;
-    fillInputs();
-    live();
-   };
-   PADEFFS.forEach(function(pe){
-    var btn=$('pad_'+k+'_'+pe.e);
-    btn.addEventListener('pointerdown',function(e){
-     e.preventDefault();
-     if(btn.setPointerCapture){try{btn.setPointerCapture(e.pointerId);}catch(_){}}
-     padHit(k,pe.e,true);
-    });
-    btn.addEventListener('pointerup',function(){padHit(k,pe.e,false);});
-    btn.addEventListener('pointercancel',function(){padHit(k,pe.e,false);});
-    btn.addEventListener('lostpointercapture',function(){padHit(k,pe.e,false);});
-    btn.addEventListener('contextmenu',function(e){e.preventDefault();});
-   });
-  })(j);
- }
- $('openpads').onclick=function(){$('padscreen').classList.add('open');};
- $('closepads').onclick=function(){$('padscreen').classList.remove('open');};
-}
-
+/* ---- colour wheel ---- */
 function initWheel(){
  var cv=$('wheel'),w=cv.width,r=w/2;
  WHEEL_BG=document.createElement('canvas');
@@ -315,11 +244,9 @@ function drawWheel(){
  var cv=$('wheel'),ctx=cv.getContext('2d');
  ctx.clearRect(0,0,cv.width,cv.height);
  ctx.drawImage(WHEEL_BG,0,0);
- ctx.beginPath();
- ctx.arc(WX,WY,7,0,Math.PI*2);
+ ctx.beginPath();ctx.arc(WX,WY,7,0,Math.PI*2);
  ctx.lineWidth=2.5;ctx.strokeStyle='#0f1115';ctx.stroke();
- ctx.beginPath();
- ctx.arc(WX,WY,5.5,0,Math.PI*2);
+ ctx.beginPath();ctx.arc(WX,WY,5.5,0,Math.PI*2);
  ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();
 }
 function setColorHex(hex){
@@ -328,8 +255,7 @@ function setColorHex(hex){
  $('colv').textContent=hex;
  var r=parseInt(hex.substr(1,2),16)||0,g=parseInt(hex.substr(3,2),16)||0,b=parseInt(hex.substr(5,2),16)||0;
  var hs=rgbToHs(r,g,b),rad=76,ang=hs[0]*Math.PI/180,dist=hs[1]*(rad-3);
- WX=rad+Math.cos(ang)*dist;
- WY=rad+Math.sin(ang)*dist;
+ WX=rad+Math.cos(ang)*dist;WY=rad+Math.sin(ang)*dist;
  drawWheel();
 }
 function pickWheel(e,commit){
@@ -345,121 +271,218 @@ function pickWheel(e,commit){
  $('cbox').style.background=CUR_COL;
  drawWheel();
  refreshTitle();
- if(ST&&ST.strips[SEL])ST.strips[SEL].color=CUR_COL.slice(1);
- send('color',CUR_COL.slice(1),!!commit);
+ var c=cur();if(c)c.color=CUR_COL.slice(1);
+ sendLayer('color',CUR_COL.slice(1));
+ if(commit)flush();
+}
+
+/* ---- fingertip pads ---- */
+function padHit(p,l,eff,down){
+ var el=$('pad_'+p+'_'+l+'_'+eff),key=p+'_'+l+'_'+eff;
+ var url='/api/tap?strip='+p+'&layer='+l+'&effect='+eff+'&down='+(down?1:0);
+ if(down){
+  if(el)el.classList.add('hit');
+  fetch(url,{method:'POST'}).catch(function(){});
+  if(HOLD_TMRS[key])clearInterval(HOLD_TMRS[key]);
+  HOLD_TMRS[key]=setInterval(function(){fetch(url,{method:'POST'}).catch(function(){});},900);
+ }else{
+  if(HOLD_TMRS[key]){clearInterval(HOLD_TMRS[key]);HOLD_TMRS[key]=0;}
+  if(el&&el.classList.contains('hit')){
+   el.classList.remove('hit');
+   fetch(url,{method:'POST'}).catch(function(){});
+  }
+ }
+}
+
+/* ---- strip / layer selectors and the pad overlay ---- */
+function buildSelectors(n){
+ var p='';
+ for(var i=0;i<n;i++)p+='<button id=sel'+i+'>Strip '+(i+1)+'</button>';
+ $('pick').innerHTML=p;
+ for(var j=0;j<n;j++){
+  (function(k){$('sel'+k).onclick=function(){
+   if(CALIB){CALIB=0;sendPhys('calib',0);}
+   flush();S=k;if(L>=layerCount())L=0;fillInputs();live();
+  };})(j);
+ }
+}
+function buildLayerTabs(){
+ var p='',n=layerCount();
+ for(var i=0;i<n;i++)p+='<button id=lt'+i+'>Layer '+(i+1)+'</button>';
+ $('layertabs').innerHTML=p;
+ for(var j=0;j<n;j++){
+  (function(k){$('lt'+k).onclick=function(){flush();L=k;fillInputs();live();};})(j);
+ }
+}
+function buildPads(){
+ var html='';
+ for(var p=0;p<ST.strips.length;p++){
+  var st=ST.strips[p];
+  for(var l=0;l<st.layerCount;l++){
+   var lay=st.layers[l],c='#'+(lay.color||'808080');
+   html+='<div class=pgrp id=pgrp'+p+'_'+l+' style="--c:'+c+'">'
+    +'<div class=pghdr><b><i class=pdot></i>Strip '+(p+1)+' &middot; Layer '+(l+1)+'</b>'
+    +'<span id=pgst'+p+'_'+l+'>-</span></div>'
+    +'<div class=pgbar><i id=pgb'+p+'_'+l+'></i></div><div class=pgrid>';
+   PADEFFS.forEach(function(pe){
+    html+='<button type=button class=pad id=pad_'+p+'_'+l+'_'+pe.e+'><span>'+pe.n+'</span><small>'+pe.d+'</small></button>';
+   });
+   html+='</div></div>';
+  }
+ }
+ $('padgroups').innerHTML=html;
+ for(var p2=0;p2<ST.strips.length;p2++){
+  for(var l2=0;l2<ST.strips[p2].layerCount;l2++){
+   (function(pp,ll){
+    PADEFFS.forEach(function(pe){
+     var btn=$('pad_'+pp+'_'+ll+'_'+pe.e);
+     btn.addEventListener('pointerdown',function(e){
+      e.preventDefault();
+      if(btn.setPointerCapture){try{btn.setPointerCapture(e.pointerId);}catch(_){}}
+      padHit(pp,ll,pe.e,true);
+     });
+     btn.addEventListener('pointerup',function(){padHit(pp,ll,pe.e,false);});
+     btn.addEventListener('pointercancel',function(){padHit(pp,ll,pe.e,false);});
+     btn.addEventListener('lostpointercapture',function(){padHit(pp,ll,pe.e,false);});
+     btn.addEventListener('contextmenu',function(e){e.preventDefault();});
+    });
+   })(p2,l2);
+  }
+ }
+}
+var PADEFFS=[
+{e:1,n:'FLASH',d:'full strip &middot; hold'},
+{e:0,n:'JET',d:'shoot &middot; hold streams'},
+{e:2,n:'BURST',d:'centre shockwave'},
+{e:3,n:'SPARKLE',d:'glitter &middot; hold'}
+];
+var TRIGSPEC=[
+{k:'centerHz',n:'Band centre',min:65,max:7600,st:5,u:' Hz'},
+{k:'widthHz',n:'Band width',min:40,max:16000,st:10,u:' Hz'}
+];
+var ANIMSPEC=[
+{k:'blobLeds',n:'Blob / jet length',min:1,max:1000,st:1,u:' LEDs'},
+{k:'speed',n:'Speed',min:1,max:500,st:1,u:' LEDs/s'},
+{k:'fadeMs',n:'Fade time',min:50,max:10000,st:50,u:' ms'},
+{k:'retriggerMs',n:'Retrigger gap',min:0,max:2000,st:10,u:' ms'}
+];
+
+function bindLayerRange(box,list){
+ list.forEach(function(s){
+  box.insertAdjacentHTML('beforeend',
+   '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
+   +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
+  var el=$(s.k);
+  el.addEventListener('input',function(){labels();sendLayer(s.k,el.value);});
+  el.addEventListener('change',function(){flush();});
+ });
+}
+function bindPhysRange(box,list){
+ list.forEach(function(s){
+  box.insertAdjacentHTML('beforeend',
+   '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
+   +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
+  var el=$(s.k);
+  el.addEventListener('input',function(){labels();sendPhys(s.k,el.value);});
+  el.addEventListener('change',function(){flush();});
+ });
 }
 
 function build(){
+ /* ---- triggering conditions (per layer) ---- */
  var tbox=$('trigbox');
- tbox.innerHTML='<div class=ptitle id=ttitle>Triggering conditions<small id=thint>choose how this strip is activated</small></div>'
-  +'<div class=row><span>Trigger input</span><b></b></div>'
-  +'<div class=seg><button id=m0>Threshold</button><button id=m1>Auto Beat</button><button id=m2>Manual (Pads)</button></div>'
-  +'<div id=trig_lvl>'
+ tbox.innerHTML='<div class=ptitle id=ttitle>Trigger input<small id=thint>how this layer fires</small></div>'
+  +'<div class=seg tight><button id=m0>Threshold</button><button id=m1>Auto Beat</button><button id=m2>Manual</button></div>'
   +'<div class=row><span id=mtlbl>Band level &amp; threshold</span><b id=mt0>0%</b></div>'
   +'<div class=bar id=bar0><i id=mb0></i><u id=mu0></u></div>'
-  +'</div>'
-  +'<div id=trig_beat style="display:none"></div>'
+  +'<div id=trig_beat style="display:none"><div class=row><span>Beat sensitivity</span><b id=beatSensitivityPctv>-</b></div>'
+  +'<input type=range id=beatSensitivityPct min=0 max=100 step=1></div>'
   +'<div id=trig_freq></div>';
  var bar=$('bar0');
  bar.addEventListener('pointerdown',function(e){
   if(MODE!==0)return;
-  e.preventDefault();
-  TDRAG=SEL;
+  e.preventDefault();TDRAG=S;
   if(bar.setPointerCapture){try{bar.setPointerCapture(e.pointerId);}catch(_){}}
-  pickThr(SEL,e,false);
+  pickThr(e,false);
  });
  bar.addEventListener('pointermove',function(e){
   if(TDRAG<0||MODE!==0)return;
-  e.preventDefault();
-  pickThr(SEL,e,false);
+  e.preventDefault();pickThr(e,false);
  });
- function endThr(e){if(TDRAG<0)return;TDRAG=-1;pickThr(SEL,e,true);}
- bar.addEventListener('pointerup',endThr);
+ bar.addEventListener('pointerup',function(e){if(TDRAG<0)return;TDRAG=-1;pickThr(e,true);});
  bar.addEventListener('pointercancel',function(){TDRAG=-1;flush();});
- var bbox=$('trig_beat');
- BEATSPEC.forEach(function(s){
-  bbox.insertAdjacentHTML('beforeend',
-   '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
-   +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
-  var el=$(s.k);
-  el.addEventListener('input',function(){labels();send(s.k,el.value,false);});
+ bindLayerRange($('trig_freq'),TRIGSPEC);
+ $('beatSensitivityPct').addEventListener('input',function(){
+  labels();sendLayer('beatSensitivityPct',$('beatSensitivityPct').value);
  });
- var fbox=$('trig_freq');
- TRIGSPEC.forEach(function(s){
-  fbox.insertAdjacentHTML('beforeend',
-   '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
-   +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
-  var el=$(s.k);
-  el.addEventListener('input',function(){labels();send(s.k,el.value,false);});
- });
- $('m0').onclick=function(){MODE=0;setMode();refreshTitle();send('mode',0,true);};
- $('m1').onclick=function(){MODE=1;setMode();refreshTitle();send('mode',1,true);};
- $('m2').onclick=function(){MODE=2;setMode();refreshTitle();send('mode',2,true);};
+ $('beatSensitivityPct').addEventListener('change',flush);
+ $('m0').onclick=function(){MODE=0;setMode();refreshTitle();sendLayer('mode',0);flush();};
+ $('m1').onclick=function(){MODE=1;setMode();refreshTitle();sendLayer('mode',1);flush();};
+ $('m2').onclick=function(){MODE=2;setMode();refreshTitle();sendLayer('mode',2);flush();};
 
+ /* ---- display: colour + intensity (layer), brightness (physical) ---- */
  var dbox=$('dispbox');
- dbox.innerHTML='<div class=ptitle id=dtitle>Display parameters<small>colour &amp; max brightness</small></div>'
-  +'<div class=row><span>Colour (drag wheel for real-time)</span><b id=colv></b></div>'
-  +'<div class=cwrap><canvas id=wheel width=152 height=152></canvas><div class=cbox id=cbox></div></div>';
+ dbox.innerHTML='<div class=ptitle id=dtitle>Display<small>layer colour &amp; weight, strip brightness</small></div>'
+  +'<div class=row><span>Layer colour</span><b id=colv>-</b></div>'
+  +'<div class=cwrap><canvas id=wheel width=152 height=152></canvas><div class=cbox id=cbox></div></div>'
+  +'<div id=spanel></div>';
  initWheel();
  var wh=$('wheel');
  wh.addEventListener('pointerdown',function(e){
-  e.preventDefault();
-  WDRAG=true;
+  e.preventDefault();WDRAG=true;
   if(wh.setPointerCapture){try{wh.setPointerCapture(e.pointerId);}catch(_){}}
   pickWheel(e,false);
  });
  wh.addEventListener('pointermove',function(e){
   if(!WDRAG)return;
-  e.preventDefault();
-  pickWheel(e,false);
+  e.preventDefault();pickWheel(e,false);
  });
- function endWheel(e){if(!WDRAG)return;WDRAG=false;pickWheel(e,true);}
- wh.addEventListener('pointerup',endWheel);
+ wh.addEventListener('pointerup',function(e){if(!WDRAG)return;WDRAG=false;pickWheel(e,true);});
  wh.addEventListener('pointercancel',function(){WDRAG=false;flush();});
- DISPSPEC.forEach(function(s){
-  dbox.insertAdjacentHTML('beforeend',
-   '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
-   +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
-  var el=$(s.k);
-  el.addEventListener('input',function(){labels();send(s.k,el.value,false);});
- });
+ bindLayerRange($('spanel'),[{k:'intensityPct',n:'Layer intensity',min:1,max:100,st:1,u:'%'}]);
+ bindPhysRange($('spanel'),[{k:'brightnessPct',n:'Strip max brightness',min:1,max:100,st:1,u:'%'}]);
 
+ /* ---- animation (per layer) ---- */
  var abox=$('animbox');
- abox.innerHTML='<div class=ptitle id=atitle>Animation parameters<small>effect, trajectory, speed, fade &amp; retrigger</small></div>'
-  +'<div class=row><span>Triggered effect</span><b></b></div>'
-  +'<div class=seg><button id=ef0>Jet</button><button id=ef1>Flash</button><button id=ef2>Burst</button><button id=ef3>Sparkle</button></div>'
-  +'<div class=row><span>Motion</span><b></b></div>'
-  +'<div class=seg><button id=lp1>Loop (ring)</button><button id=lp0>One-shot</button></div>'
+ abox.innerHTML='<div class=ptitle id=atitle>Effect &amp; motion<small>what this layer draws and how it moves</small></div>'
+  +'<div class=seg tight><button id=ef0>Jet</button><button id=ef1>Flash</button><button id=ef2>Burst</button><button id=ef3>Sparkle</button></div>'
+  +'<div class=row><span>Topology</span><b></b></div>'
+  +'<div class=seg><button id=lp1>Loop</button><button id=lp0>One-shot</button></div>'
   +'<div class=row><span>Direction</span><b></b></div>'
-  +'<div class=seg><button id=d0>Forward</button><button id=d1>Reverse</button><button id=d2>Ping-pong</button></div>';
- $('ef0').onclick=function(){EFF=0;setEff();refreshTitle();send('effect',0,true);};
- $('ef1').onclick=function(){EFF=1;setEff();refreshTitle();send('effect',1,true);};
- $('ef2').onclick=function(){EFF=2;setEff();refreshTitle();send('effect',2,true);};
- $('ef3').onclick=function(){EFF=3;setEff();refreshTitle();send('effect',3,true);};
+  +'<div class=seg tight><button id=d0>Forward</button><button id=d1>Reverse</button><button id=d2>Ping-pong</button></div>';
+ $('ef0').onclick=function(){EFF=0;setEff();refreshTitle();sendLayer('effect',0);flush();};
+ $('ef1').onclick=function(){EFF=1;setEff();refreshTitle();sendLayer('effect',1);flush();};
+ $('ef2').onclick=function(){EFF=2;setEff();refreshTitle();sendLayer('effect',2);flush();};
+ $('ef3').onclick=function(){EFF=3;setEff();refreshTitle();sendLayer('effect',3);flush();};
+ $('lp1').onclick=function(){LOOP=1;setLoop();refreshTitle();sendLayer('loop',1);flush();};
+ $('lp0').onclick=function(){LOOP=0;setLoop();refreshTitle();sendLayer('loop',0);flush();};
+ $('d0').onclick=function(){REV=0;setDir();refreshTitle();sendLayer('reverse',0);flush();};
+ $('d1').onclick=function(){REV=1;setDir();refreshTitle();sendLayer('reverse',1);flush();};
+ $('d2').onclick=function(){REV=2;setDir();refreshTitle();sendLayer('reverse',2);flush();};
  ANIMSPEC.forEach(function(s){
   if(s.k==='retriggerMs'){
    abox.insertAdjacentHTML('beforeend',
     '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
-    +'<div class=rline><input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'><button type=button id=rtbtn class=tbtn>Retrig ON</button></div>');
+    +'<div class=rline><input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>'
+    +'<button type=button id=rtbtn class=tbtn>Retrig ON</button></div>');
   }else{
    abox.insertAdjacentHTML('beforeend',
     '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
     +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
   }
   var el=$(s.k);
-  el.addEventListener('input',function(){labels();send(s.k,el.value,false);});
+  el.addEventListener('input',function(){labels();sendLayer(s.k,el.value);});
+  el.addEventListener('change',flush);
  });
  $('rtbtn').onclick=function(){
-  RETRIG=RETRIG?0:1;
-  setRetrig();
-  labels();
-  send('retrigger',RETRIG,true);
+  RETRIG=RETRIG?0:1;setRetrig();labels();sendLayer('retrigger',RETRIG);flush();
  };
 
- var cbox=$('calbox'),cs=CALSPEC[0];
+ /* ---- calibration (physical) ---- */
+ var cbox=$('calbox');
  cbox.innerHTML='<div class=ptitle id=ctitle>Strip calibration<small id=calhint>lights only the end LED while adjusting</small></div>'
-  +'<div class=row><span>'+cs.n+'</span><b id="ledCountv">-</b></div>'
-  +'<input type=range id="ledCount" min='+cs.min+' max='+cs.max+' step='+cs.st+'>'
+  +'<div class=row><span>LEDs on this physical strip</span><b id="ledCountv">-</b></div>'
+  +'<input type=range id="ledCount" min=1 max=1000 step=1>'
   +'<div class=rline style="margin-top:6px">'
   +'<button type=button id=lcdec10 class=stepbtn>-10</button>'
   +'<button type=button id=lcdec class=stepbtn>&larr;</button>'
@@ -467,61 +490,80 @@ function build(){
   +'<button type=button id=lcinc10 class=stepbtn>+10</button>'
   +'<button type=button id=calbtn class=tbtn style="margin-left:auto">Calibrate</button>'
   +'</div>';
- $('ledCount').addEventListener('input',function(){labels();send('ledCount',$('ledCount').value,false);});
+ $('ledCount').addEventListener('input',function(){labels();sendPhys('ledCount',$('ledCount').value);});
+ $('ledCount').addEventListener('change',flush);
  function stepLeds(delta){
   var el=$('ledCount'),v=Math.max(1,Math.min(1000,(+el.value)+delta));
-  el.value=v;
-  labels();
-  send('ledCount',v,true);
+  el.value=v;labels();sendPhys('ledCount',v);flush();
  }
  $('lcdec10').onclick=function(){stepLeds(-10);};
  $('lcdec').onclick=function(){stepLeds(-1);};
  $('lcinc').onclick=function(){stepLeds(1);};
  $('lcinc10').onclick=function(){stepLeds(10);};
- $('calbtn').onclick=function(){
-  CALIB=CALIB?0:1;
-  setCalib();
-  send('calib',CALIB,true);
+ $('calbtn').onclick=function(){CALIB=CALIB?0:1;setCalib();sendPhys('calib',CALIB);flush();};
+
+ /* ---- strip-level controls ---- */
+ $('pwr').addEventListener('change',function(){
+  var c=cur();if(c)c.enabled=$('pwr').checked?1:0;
+  sendLayer('enabled',$('pwr').checked?1:0);flush();refreshTitle();
+ });
+ $('addlayer').onclick=function(){
+  var n=layerCount();
+  if(n>=4){flashMsg('Maximum 4 layers');return;}
+  sendPhys('layerCount',n+1);
+  syncState(function(){L=n;fillInputs();live();});
  };
- $('pwr').addEventListener('change',function(){send('enabled',$('pwr').checked?1:0,true);});
- $('lp1').onclick=function(){LOOP=1;setLoop();refreshTitle();send('loop',1,true);};
- $('lp0').onclick=function(){LOOP=0;setLoop();refreshTitle();send('loop',0,true);};
- $('d0').onclick=function(){REV=0;setDir();refreshTitle();send('reverse',0,true);};
- $('d1').onclick=function(){REV=1;setDir();refreshTitle();send('reverse',1,true);};
- $('d2').onclick=function(){REV=2;setDir();refreshTitle();send('reverse',2,true);};
- $('pwr').addEventListener('change',refreshTitle);
+ $('remlayer').onclick=function(){
+  var n=layerCount();
+  if(n<=1){flashMsg('At least one layer');return;}
+  sendPhys('layerCount',n-1);
+  syncState(function(){if(L>n-2)L=Math.max(0,n-2);fillInputs();live();});
+ };
+ $('solobtn').onclick=function(){
+  SOLO=(SOLO===L)?-1:L;
+  sendPhys('solo',SOLO);flush();setSolo();refreshTitle();
+ };
+ $('openpads').onclick=function(){$('padscreen').classList.add('open');};
+ $('closepads').onclick=function(){$('padscreen').classList.remove('open');};
 }
 
 function dirName(r){return r===2?'ping-pong':(r===1?'reverse':'forward');}
-function modeName(m){return m===2?'manual pads':(m===1?'auto beat':'threshold');}
+function modeName(m){return m===2?'manual':(m===1?'auto beat':'threshold');}
 function effName(e){return e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet'));}
 
 function refreshTitle(){
- var on=$('pwr').checked;
- var c=CUR_COL;
- var thr=ST&&ST.strips&&ST.strips[SEL]?ST.strips[SEL].thresholdPct:35;
- ['ptitle','ttitle','dtitle','atitle','ctitle'].forEach(function(id){
-  if($(id))$(id).style.borderLeftColor=c;
- });
- $('colv').textContent=c;
- var trigTxt=MODE===2?'manual pads':(MODE===1?('beat '+$('beatSensitivityPct').value+'% sens'):(thr+'% thr'));
- $('ptitle').innerHTML=nameOf(SEL)+'<small>'+(on?'powered on':'powered off')
-  +' &middot; '+trigTxt
-  +' &middot; '+effName(EFF)
-  +' &middot; '+$('speed').value+' LED/s'
-  +' &middot; fade '+$('fadeMs').value+' ms</small>';
+ var c=cur(),p=phys();
+ if(!c||!p)return;
+ var col=colOf(c);
+ ['ptitle','ttitle','dtitle','atitle','ctitle'].forEach(function(id){if($(id))$(id).style.borderLeftColor=col;});
+ $('colv').textContent=col;
+ var trig=MODE===2?'manual':(MODE===1?('beat '+$('beatSensitivityPct').value+'%'):(c.thresholdPct+'% thr'));
+ $('ptitle').innerHTML=nameOf(S)+' &middot; Layer '+(L+1)+'<small>'
+  +(c.enabled?'on':'off')+' &middot; '+trig+' &middot; '+effName(EFF)
+  +' &middot; '+c.intensityPct+'% weight &middot; '+$('speed').value+' LED/s</small>';
+ $('lcv').textContent=layerCount()+' of 4';
+ $('tabhint').textContent=p.ledCount+' LEDs · '+p.brightnessPct+'% output';
 }
 
 function labels(){
- ALLSPEC.forEach(function(p){
-  if(p.k==='centerHz'||p.k==='widthHz'||p.k==='retriggerMs')return;
-  $(p.k+'v').textContent=$(p.k).value+p.u;
+ [TRIGSPEC,ANIMSPEC].forEach(function(list){
+  list.forEach(function(s){
+   if(!$(s.k+'v'))return;
+   if(s.k==='centerHz'||s.k==='widthHz')return;
+   if(s.k==='retriggerMs')return;
+   $(s.k+'v').textContent=$(s.k).value+s.u;
+  });
  });
- $('retriggerMsv').textContent=RETRIG?($('retriggerMs').value+' ms'):'no retrigger (single)';
- var c=+$('centerHz').value, w=+$('widthHz').value;
- var lo=Math.max(65,Math.round(c-w/2)), hi=Math.min(7600,Math.round(c+w/2));
- $('centerHzv').textContent=c+' Hz';
- $('widthHzv').textContent=w+' Hz  ('+lo+'-'+hi+')';
+ if($('retriggerMsv'))$('retriggerMsv').textContent=RETRIG?($('retriggerMs').value+' ms'):'single only';
+ if($('centerHzv')){
+  var cc=+$('centerHz').value,w=+$('widthHz').value;
+  $('centerHzv').textContent=cc+' Hz';
+  $('widthHzv').textContent=w+' Hz  ('+Math.max(65,Math.round(cc-w/2))+'-'+Math.min(7600,Math.round(cc+w/2))+')';
+ }
+ if($('beatSensitivityPctv'))$('beatSensitivityPctv').textContent=$('beatSensitivityPct').value+'%';
+ if($('intensityPctv'))$('intensityPctv').textContent=$('intensityPct').value+'%';
+ if($('brightnessPctv'))$('brightnessPctv').textContent=$('brightnessPct').value+'%';
+ if($('ledCountv'))$('ledCountv').textContent=$('ledCount').value;
  refreshTitle();
 }
 
@@ -529,64 +571,66 @@ function setMode(){
  $('m0').className=MODE===0?'sel':'';
  $('m1').className=MODE===1?'sel':'';
  $('m2').className=MODE===2?'sel':'';
- $('trig_lvl').style.display=MODE===2?'none':'';
- $('trig_beat').style.display=MODE===1?'':'none';
  $('trig_freq').style.display=MODE===2?'none':'';
+ $('trig_beat').style.display=MODE===1?'':'none';
  $('mu0').style.display=MODE===0?'':'none';
  $('bar0').style.cursor=MODE===0?'ew-resize':'default';
  if($('mtlbl'))$('mtlbl').textContent=MODE===1?'Beat pulse & detected tempo':'Band level & threshold';
- if($('thint')){
-  $('thint').textContent=MODE===0
-   ?'drag white mark on bar to set level threshold'
-   :(MODE===1
-     ?'adaptive onset detector inside the frequency window below'
-     :'microphone ignored on this strip — play live from Full-Screen Effect Pads');
- }
+ if($('thint'))$('thint').textContent=MODE===0
+  ?'drag the white mark to set the level threshold'
+  :(MODE===1?'adaptive onset detector inside this layer\'s band':'microphone ignored — play from the pads');
 }
-function setEff(){
- for(var i=0;i<4;i++)if($('ef'+i))$('ef'+i).className=EFF===i?'sel':'';
-}
-function setDir(){
- $('d0').className=REV===0?'sel':'';
- $('d1').className=REV===1?'sel':'';
- $('d2').className=REV===2?'sel':'';
-}
+function setEff(){for(var i=0;i<4;i++)if($('ef'+i))$('ef'+i).className=EFF===i?'sel':'';}
+function setDir(){$('d0').className=REV===0?'sel':'';$('d1').className=REV===1?'sel':'';$('d2').className=REV===2?'sel':'';}
 function setLoop(){$('lp1').className=LOOP?'sel':'';$('lp0').className=LOOP?'':'sel';}
 function setRetrig(){
  var b=$('rtbtn'),sl=$('retriggerMs');
+ if(!b)return;
  b.className='tbtn '+(RETRIG?'on':'off');
  b.textContent=RETRIG?'Retrig ON':'Single';
- sl.disabled=!RETRIG;
- sl.style.opacity=RETRIG?'1':'.35';
+ sl.disabled=!RETRIG;sl.style.opacity=RETRIG?'1':'.35';
 }
 function setCalib(){
  var b=$('calbtn'),h=$('calhint');
+ if(!b)return;
  b.className='tbtn '+(CALIB?'on':'');
  b.textContent=CALIB?'Exit calib':'Calibrate';
- if(h)h.textContent=CALIB?'CALIBRATING: only end LED is lit (tap Exit calib or adjust any other slider to resume)':'lights only the end LED while adjusting';
+ if(h)h.textContent=CALIB?'CALIBRATING: only the end LED is lit':'lights only the end LED while adjusting';
+}
+function setSolo(){
+ var b=$('solobtn');
+ if(!b)return;
+ b.className='tbtn '+(SOLO===L?'solo':'');
+ b.textContent=SOLO===L?'Solo ON':'Solo';
+}
+function setLayerSel(){
+ var n=layerCount();
+ for(var i=0;i<4;i++){
+  var b=$('lt'+i);
+  if(b)b.className=(i===L?'sel ':'')+(i<n?'':'');
+ }
 }
 
-/* Only called when the values come from the board, never while dragging: a poll
-   in the middle of a drag would otherwise fight the user's finger. */
 function fillInputs(){
  if(!ST||!BUILT)return;
- var s=ST.strips[SEL];
- ALLSPEC.forEach(function(p){if(s[p.k]!==undefined)$(p.k).value=s[p.k];});
- $('pwr').checked=!!s.enabled;
+ var c=cur(),p=phys();
+ if(!c||!p)return;
+ [TRIGSPEC,ANIMSPEC].forEach(function(list){
+  list.forEach(function(s){if($(s.k)&&c[s.k]!==undefined)$(s.k).value=c[s.k];});
+ });
+ $('beatSensitivityPct').value=c.beatSensitivityPct;
+ $('intensityPct').value=c.intensityPct;
+ $('brightnessPct').value=p.brightnessPct;
+ $('ledCount').value=p.ledCount;
+ $('pwr').checked=!!c.enabled;
  $('gainDb').value=ST.gainDb;
- MODE=s.mode||0;
- EFF=s.effect||0;
- REV=s.reverse||0;
- LOOP=s.loop?1:0;
- RETRIG=s.retrigger!==undefined?(s.retrigger?1:0):1;
- CALIB=s.calib?1:0;
- setMode();
- setEff();
- setDir();
- setLoop();
- setRetrig();
- setCalib();
- setColorHex(colOf(s));
+ MODE=c.mode||0;EFF=c.effect||0;REV=c.reverse||0;LOOP=c.loop?1:0;
+ RETRIG=c.retrigger!==undefined?(c.retrigger?1:0):1;
+ CALIB=p.calib?1:0;
+ SOLO=(p.solo===undefined)?-1:p.solo;
+ buildLayerTabs();
+ setLayerSel();setMode();setEff();setDir();setLoop();setRetrig();setCalib();setSolo();
+ setColorHex(colOf(c));
  labels();
 }
 
@@ -599,36 +643,38 @@ function flashMsg(t){
 function live(){
  if(!ST)return;
  for(var i=0;i<ST.strips.length;i++){
-  var si=ST.strips[i],ci=colOf(si);
-  $('sel'+i).className=(SEL===i?'sel ':'')+(si.enabled?'on':'off');
-  var pg=$('pgrp'+i);
-  if(pg){
-   pg.style.setProperty('--c',ci);
-   var stTxt=!si.enabled?'powered off':(si.mode===1?('Beat · '+(si.bpm>0?(si.bpm+' BPM'):'listening')):(si.mode===2?'Manual Pads':('Thr '+si.thresholdPct+'% · lvl '+si.levelPct+'%')));
-   $('pgst'+i).textContent=stTxt+' · out '+si.brightPct+'%';
-   $('pgb'+i).style.width=si.brightPct+'%';
-  }
+  var st=ST.strips[i],anyOn=false;
+  for(var lv=0;lv<st.layerCount;lv++)if(st.layers[lv].enabled)anyOn=true;
+  $('sel'+i).className=(S===i?'sel ':'')+(anyOn?'on':'off');
  }
- var s=ST.strips[SEL];
- if(s&&BUILT){
-  var c=colOf(s);
-  if(s.mode===1){
-   var bp=Math.max(s.beatPct||0,s.levelPct||0);
-   $('mb0').style.width=bp+'%';
-   $('mb0').style.background=c;
-   $('mt0').textContent=s.enabled
-    ?((s.bpm>0?(s.bpm+' BPM'):'listening…')+' · beat '+(s.beatPct||0)+'% · lvl '+s.levelPct+'%')
-    :'switched off';
+ setLayerSel();
+ var c=cur(),p=phys();
+ if(c){
+  var col=colOf(c);
+  $('mb0').style.background=col;
+  if(MODE===1){
+   $('mb0').style.width=Math.max(c.beatPct||0,c.levelPct||0)+'%';
+   $('mt0').textContent=(c.bpm>0?(c.bpm+' BPM'):'listening…')+' · beat '+(c.beatPct||0)+'% · lvl '+c.levelPct+'%';
+  }else if(MODE===2){
+   $('mb0').style.width=(c.brightPct||0)+'%';
+   $('mt0').textContent='manual · out '+(c.brightPct||0)+'%';
   }else{
-   $('mb0').style.width=s.levelPct+'%';
-   $('mb0').style.background=c;
-   $('mu0').style.left='calc('+s.thresholdPct+'% - 2px)';
-   $('mt0').textContent=s.enabled
-    ?('thr '+s.thresholdPct+'% · lvl '+s.levelPct+'% · '+s.blobs+' active')
-    :'switched off';
+   $('mb0').style.width=c.levelPct+'%';
+   $('mu0').style.left='calc('+c.thresholdPct+'% - 2px)';
+   $('mt0').textContent='thr '+c.thresholdPct+'% · lvl '+c.levelPct+'% · '+c.blobs+' active';
   }
-  CALIB=s.calib?1:0;
-  setCalib();
+  CALIB=p.calib?1:0;setCalib();setSolo();
+ }
+ for(var q=0;q<ST.strips.length;q++){
+  var sq=ST.strips[q];
+  for(var lq=0;lq<sq.layerCount;lq++){
+   var ly=sq.layers[lq],g=$('pgrp'+q+'_'+lq);
+   if(!g)continue;
+   g.style.setProperty('--c','#'+(ly.color||'808080'));
+   var stx=layModeName(ly)+' · out '+(ly.brightPct||0)+'%';
+   $('pgst'+q+'_'+lq).textContent=stx;
+   $('pgb'+q+'_'+lq).style.width=(ly.brightPct||0)+'%';
+  }
  }
  if(ST.ssid)$('host').textContent=ST.ssid+' · '+location.host;
  $('sLvl').textContent=ST.levelPct+'%';
@@ -640,40 +686,46 @@ function live(){
  $('ld2').disabled=!ST.hasPreset1;
  $('ld3').disabled=!ST.hasPreset2;
 }
+function layModeName(l){
+ if(!l)return '-';
+ if(!l.enabled)return 'off';
+ if(l.mode===1)return l.bpm>0?(l.bpm+' BPM'):'beat';
+ if(l.mode===2)return 'manual';
+ return 'thr '+l.thresholdPct+'%';
+}
 
+var PAD_SIG='';
+function padSig(s){
+ var t='';
+ for(var i=0;i<s.strips.length;i++){
+  t+=s.strips[i].layerCount+':';
+  for(var l=0;l<s.strips[i].layers.length;l++)t+=s.strips[i].layers[l].color+',';
+ }
+ return t;
+}
 function apply(s){
  ST=s;
  if(!BUILT&&ST.strips.length){
   BUILT=true;
-  buildMeters(ST.strips.length);
+  buildSelectors(ST.strips.length);
   build();
  }
+ var sig=padSig(s);
+ if(sig!==PAD_SIG){PAD_SIG=sig;buildPads();}
  if(!SEEDED){SEEDED=true;fillInputs();}
  live();
 }
 function post(u,refresh){
- return fetch(u,{method:'POST'}).then(function(r){return r.json();}).then(function(s){
-  apply(s);
-  if(refresh)fillInputs();
-  return s;
+ return fetch(u,{method:'POST',cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
+  apply(s);if(refresh)fillInputs();return s;
  });
 }
 $('host').textContent=location.host;
-$('gainDb').addEventListener('input',function(){
- $('gainDbv').textContent=$('gainDb').value+' dB';
-});
-$('gainDb').addEventListener('change',function(){
- fetch('/api/params?gainDb='+$('gainDb').value,{method:'POST'});
-});
+$('gainDb').addEventListener('input',function(){$('gainDbv').textContent=$('gainDb').value+' dB';});
+$('gainDb').addEventListener('change',function(){sendRaw('gainDb='+$('gainDb').value);flush();});
 [1,2,3].forEach(function(n){
- $('sp'+n).onclick=function(){
-  flush();
-  post('/api/preset?slot='+n+'&action=save',false).then(function(){flashMsg('Preset '+n+' saved');});
- };
- $('ld'+n).onclick=function(){
-  flush();
-  post('/api/preset?slot='+n+'&action=load',true).then(function(){flashMsg('Preset '+n+' loaded');});
- };
+ $('sp'+n).onclick=function(){flush();post('/api/preset?slot='+n+'&action=save',false).then(function(){flashMsg('Preset '+n+' saved');});};
+ $('ld'+n).onclick=function(){flush();post('/api/preset?slot='+n+'&action=load',true).then(function(){flashMsg('Preset '+n+' loaded');});};
 });
 $('rst').onclick=function(){
  if(confirm('Reset current parameters to factory defaults? (Saved presets are kept.)')){
@@ -681,15 +733,15 @@ $('rst').onclick=function(){
  }
 };
 function poll(){
- if(INFLIGHT||POLL_BUSY||WDRAG||TDRAG>=0||hasPending())return;
+ if(INFLIGHT||POLL_BUSY||WDRAG||TDRAG>=0||LAST)return;
  POLL_BUSY=true;
- fetch('/api/state')
+ fetch('/api/state',{cache:'no-store'})
   .then(function(r){return r.json();})
-  .then(function(s){POLL_BUSY=false;if(!WDRAG&&TDRAG<0&&!hasPending())apply(s);})
+  .then(function(s){POLL_BUSY=false;if(!WDRAG&&TDRAG<0&&!LAST)apply(s);})
   .catch(function(){POLL_BUSY=false;});
 }
-poll();
-setInterval(poll,400);
+fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
+setInterval(poll,600);
 </script>
 </body>
 </html>)PAGE";
@@ -781,26 +833,37 @@ String WebUi::stateJson() const {
           kSsid, (unsigned)settings_->gainDb);
 
   for (size_t i = 0; i < kStripCount; i++) {
-    const StripSettings &s = settings_->strip[i];
+    const PhysicalStripSettings &p = settings_->phys[i];
+    const PhysicalTelemetry &pt = tele_.strip[i];
     appendf(buf, sizeof(buf), n,
-            "%s{\"mode\":%u,\"effect\":%u,\"enabled\":%u,\"brightnessPct\":%u,"
-            "\"ledCount\":%u,\"centerHz\":%u,\"widthHz\":%u,\"thresholdPct\":%u,"
-            "\"beatSensitivityPct\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
-            "\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,\"reverse\":%u,"
-            "\"loop\":%u,\"color\":\"%02x%02x%02x\",\"levelPct\":%u,"
-            "\"brightPct\":%u,\"blobs\":%u,\"beatPct\":%u,\"bpm\":%u,"
-            "\"calib\":%u}",
-            i == 0 ? "" : ",", (unsigned)s.mode, (unsigned)s.effect,
-            (unsigned)s.enabled, (unsigned)s.brightnessPct,
-            (unsigned)s.ledCount, (unsigned)s.centerHz, (unsigned)s.widthHz,
-            (unsigned)s.thresholdPct, (unsigned)s.beatSensitivityPct,
-            (unsigned)s.retrigger, (unsigned)s.retriggerMs,
-            (unsigned)s.blobLeds, (unsigned)s.speed, (unsigned)s.fadeMs,
-            (unsigned)s.reverse, (unsigned)s.loop, (unsigned)s.r,
-            (unsigned)s.g, (unsigned)s.b, (unsigned)tele_.strip[i].levelPct,
-            (unsigned)tele_.strip[i].brightPct, (unsigned)tele_.strip[i].blobs,
-            (unsigned)tele_.strip[i].beatPct, (unsigned)tele_.strip[i].bpm,
+            "%s{\"ledCount\":%u,\"brightnessPct\":%u,\"layerCount\":%u,"
+            "\"brightPct\":%u,\"solo\":%d,\"calib\":%u,\"layers\":[",
+            i == 0 ? "" : ",", (unsigned)p.ledCount, (unsigned)p.brightnessPct,
+            (unsigned)p.layerCount, (unsigned)pt.brightPct, (int)soloLayer(i),
             isCalibrating(i, nowMs) ? 1u : 0u);
+
+    for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+      const LayerSettings &s = settings_->layer[i][l];
+      const LayerTelemetry &lt = pt.layer[l];
+      appendf(buf, sizeof(buf), n,
+              "%s{\"mode\":%u,\"effect\":%u,\"enabled\":%u,\"intensityPct\":%u,"
+              "\"centerHz\":%u,\"widthHz\":%u,\"thresholdPct\":%u,"
+              "\"beatSensitivityPct\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
+              "\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,\"reverse\":%u,"
+              "\"loop\":%u,\"color\":\"%02x%02x%02x\",\"levelPct\":%u,"
+              "\"brightPct\":%u,\"blobs\":%u,\"beatPct\":%u,\"bpm\":%u}",
+              l == 0 ? "" : ",", (unsigned)s.mode, (unsigned)s.effect,
+              (unsigned)s.enabled, (unsigned)s.intensityPct,
+              (unsigned)s.centerHz, (unsigned)s.widthHz,
+              (unsigned)s.thresholdPct, (unsigned)s.beatSensitivityPct,
+              (unsigned)s.retrigger, (unsigned)s.retriggerMs,
+              (unsigned)s.blobLeds, (unsigned)s.speed, (unsigned)s.fadeMs,
+              (unsigned)s.reverse, (unsigned)s.loop, (unsigned)s.r,
+              (unsigned)s.g, (unsigned)s.b, (unsigned)lt.levelPct,
+              (unsigned)lt.brightPct, (unsigned)lt.blobs,
+              (unsigned)lt.beatPct, (unsigned)lt.bpm);
+    }
+    appendf(buf, sizeof(buf), n, "]}");
   }
 
   appendf(buf, sizeof(buf), n,
@@ -824,6 +887,18 @@ void WebUi::handleState() {
   server_.send(200, "application/json", stateJson());
 }
 
+bool WebUi::readIndex(const char *name, size_t limit, size_t &out) {
+  if (!server_.hasArg(name)) {
+    return false;
+  }
+  const int v = server_.arg(name).toInt();
+  if (v < 0 || v >= (int)limit) {
+    return false;
+  }
+  out = (size_t)v;
+  return true;
+}
+
 void WebUi::applyArg(const char *name, uint8_t *dst) {
   if (!server_.hasArg(name)) {
     return;
@@ -839,89 +914,110 @@ void WebUi::applyArg(const char *name, uint16_t *dst) {
 }
 
 void WebUi::handleParams() {
-  // Strip parameters are addressed with ?strip=<index>; gain is global.
-  const int index = server_.hasArg("strip") ? server_.arg("strip").toInt() : -1;
-  if (index >= 0 && index < (int)kStripCount) {
-    StripSettings &s = settings_->strip[index];
-    applyArg("mode", &s.mode);
-    applyArg("effect", &s.effect);
-    applyArg("enabled", &s.enabled);
-    applyArg("brightnessPct", &s.brightnessPct);
-    applyArg("ledCount", &s.ledCount);
-    applyArg("centerHz", &s.centerHz);
-    applyArg("widthHz", &s.widthHz);
-    applyArg("thresholdPct", &s.thresholdPct);
-    applyArg("beatSensitivityPct", &s.beatSensitivityPct);
-    applyArg("retrigger", &s.retrigger);
-    applyArg("retriggerMs", &s.retriggerMs);
-    applyArg("blobLeds", &s.blobLeds);
-    applyArg("speed", &s.speed);
-    applyArg("fadeMs", &s.fadeMs);
-    applyArg("reverse", &s.reverse);
-    applyArg("loop", &s.loop);
+  size_t p = 0;
+  if (readIndex("strip", kStripCount, p)) {
+    // Runtime-only: solo is a preview tool, so it is not persisted.
+    if (server_.hasArg("solo")) {
+      const int v = server_.arg("solo").toInt();
+      solo_[p] =
+          (v < 0 || v >= (int)kMaxLayersPerStrip) ? (int8_t)-1 : (int8_t)v;
+    }
 
-    // Changing ledCount automatically activates the single-LED calibration dot
-    // for 3.5 seconds so the user can see the physical tip of the strip.
+    // The physical container.
+    PhysicalStripSettings &ps = settings_->phys[p];
+    applyArg("ledCount", &ps.ledCount);
+    applyArg("brightnessPct", &ps.brightnessPct);
+    applyArg("layerCount", &ps.layerCount);
+
+    // Changing ledCount auto-shows the calibration dot for 3.5 s so the tip of
+    // the strip is visible; touching anything else leaves calibration mode.
     if (server_.hasArg("ledCount")) {
-      calibUntilMs_[index] = millis() + 3500;
+      calibUntilMs_[p] = millis() + 3500;
     } else if (!server_.hasArg("calib")) {
-      // Touching any other parameter exits calibration mode immediately.
-      calibPinned_[index] = false;
-      calibUntilMs_[index] = 0;
+      calibPinned_[p] = false;
+      calibUntilMs_[p] = 0;
     }
     if (server_.hasArg("calib")) {
       const bool on = server_.arg("calib").toInt() != 0;
-      calibPinned_[index] = on;
+      calibPinned_[p] = on;
       if (!on) {
-        calibUntilMs_[index] = 0;
+        calibUntilMs_[p] = 0;
       }
     }
 
-    if (server_.hasArg("color")) {
-      String v = server_.arg("color");
-      if (v.startsWith("#")) {
-        v = v.substring(1);
+    // One layer of that container.
+    size_t l = 0;
+    if (readIndex("layer", kMaxLayersPerStrip, l)) {
+      LayerSettings &s = settings_->layer[p][l];
+      edit_[p] = (uint8_t)l;
+      applyArg("mode", &s.mode);
+      applyArg("effect", &s.effect);
+      applyArg("enabled", &s.enabled);
+      applyArg("intensityPct", &s.intensityPct);
+      applyArg("centerHz", &s.centerHz);
+      applyArg("widthHz", &s.widthHz);
+      applyArg("thresholdPct", &s.thresholdPct);
+      applyArg("beatSensitivityPct", &s.beatSensitivityPct);
+      applyArg("retrigger", &s.retrigger);
+      applyArg("retriggerMs", &s.retriggerMs);
+      applyArg("blobLeds", &s.blobLeds);
+      applyArg("speed", &s.speed);
+      applyArg("fadeMs", &s.fadeMs);
+      applyArg("reverse", &s.reverse);
+      applyArg("loop", &s.loop);
+
+      if (server_.hasArg("color")) {
+        String v = server_.arg("color");
+        if (v.startsWith("#")) {
+          v = v.substring(1);
+        }
+        const uint32_t rgb = (uint32_t)strtoul(v.c_str(), nullptr, 16);
+        s.r = (uint8_t)((rgb >> 16) & 0xFF);
+        s.g = (uint8_t)((rgb >> 8) & 0xFF);
+        s.b = (uint8_t)(rgb & 0xFF);
       }
-      const uint32_t rgb = (uint32_t)strtoul(v.c_str(), nullptr, 16);
-      s.r = (uint8_t)((rgb >> 16) & 0xFF);
-      s.g = (uint8_t)((rgb >> 8) & 0xFF);
-      s.b = (uint8_t)(rgb & 0xFF);
     }
   }
+
   applyArg("gainDb", &settings_->gainDb);
   clampSettings(*settings_);
   changed_ = true;
   unsaved_ = true;
 
-  // Lightweight 204 reply: avoids heap String allocation and 650-byte JSON
-  // responses on every 50 ms slider / colour-wheel drag tick.
+  // Lightweight 204 reply: avoids heap String allocation and a multi-KB JSON
+  // response on every 50 ms slider / colour-wheel drag tick.
   server_.send(204, "text/plain", "");
 }
 
 void WebUi::handleTap() {
-  const int index = server_.hasArg("strip") ? server_.arg("strip").toInt() : -1;
-  if (index >= 0 && index < (int)kStripCount) {
-    const uint8_t eff = clampU8(
-        server_.hasArg("effect") ? server_.arg("effect").toInt() : 0,
-        StripSettings::kEffectJet, StripSettings::kEffectSparkle);
+  size_t p = 0;
+  size_t l = 0;
+  if (readIndex("strip", kStripCount, p) &&
+      readIndex("layer", kMaxLayersPerStrip, l)) {
+    const uint8_t eff =
+        clampU8((server_.hasArg("effect") ? server_.arg("effect").toInt() : 0),
+                LayerSettings::kEffectJet, LayerSettings::kEffectSparkle);
     const bool down =
         !server_.hasArg("down") || server_.arg("down").toInt() != 0;
 
-    calibPinned_[index] = false;
-    calibUntilMs_[index] = 0;
+    calibPinned_[p] = false;
+    calibUntilMs_[p] = 0;
+    edit_[p] = (uint8_t)l;
 
     if (down) {
-      if (!padDown_[index] || holdEffect_[index] != eff) {
-        tapPending_[index] = true;
-        tapEffect_[index] = eff;
+      // Only a fresh press re-fires the effect; the 900 ms keepalive requests
+      // just refresh the hold.
+      if (!padDown_[p][l] || holdEffect_[p][l] != eff) {
+        tapPending_[p][l] = true;
+        tapEffect_[p][l] = eff;
       }
-      padDown_[index] = true;
-      holdState_[index] = 1;
-      holdEffect_[index] = eff;
+      padDown_[p][l] = true;
+      holdState_[p][l] = 1;
+      holdEffect_[p][l] = eff;
     } else {
-      padDown_[index] = false;
-      holdState_[index] = 0;
-      holdEffect_[index] = eff;
+      padDown_[p][l] = false;
+      holdState_[p][l] = 0;
+      holdEffect_[p][l] = eff;
     }
   }
   server_.send(204, "text/plain", "");
@@ -948,6 +1044,7 @@ void WebUi::handlePreset() {
         for (size_t i = 0; i < kStripCount; i++) {
           calibPinned_[i] = false;
           calibUntilMs_[i] = 0;
+          solo_[i] = -1;
         }
         changed_ = true;
         unsaved_ = true;
@@ -968,6 +1065,7 @@ void WebUi::handleReset() {
   for (size_t i = 0; i < kStripCount; i++) {
     calibPinned_[i] = false;
     calibUntilMs_[i] = 0;
+    solo_[i] = -1;
   }
   // A reset that did not survive a reboot would be confusing, so this one is
   // written straight away.

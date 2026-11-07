@@ -88,4 +88,4 @@ constexpr char kWifiPassword[] = WIFI_PASSWORD;
 // Web UI.
 // ---------------------------------------------------------------------------
 
-constexpr size_t kStateJsonMaxBytes = 1900;
+constexpr size_t kStateJsonMaxBytes = 3400;

@@ -35,11 +35,17 @@ built-in microphone.)*
 1. **Audio & FFT Pipeline** ([src/audio_fft.h](../src/audio_fft.h), [src/audio_fft.cpp](../src/audio_fft.cpp), [src/fft_backend_espdsp.cpp](../src/fft_backend_espdsp.cpp)):
    - 512-sample frames at 16 kHz (~32 ms/frame, ~31 fps), Hann window, hardware-accelerated ESP-DSP real FFT (`-DFFT_BACKEND_ESP_DSP`).
    - Computes 30 log-spaced display bars (`65 Hz .. 7600 Hz`) plus exact energy inside each strip's `centerHz ± widthHz/2` window (`bandLevel()`).
-2. **Per-strip trigger inputs + four effects** ([src/blob_mode.h](../src/blob_mode.h), [src/blob_mode.cpp](../src/blob_mode.cpp), [src/beat.h](../src/beat.h), [src/beat.cpp](../src/beat.cpp)):
-   - **Trigger input (`mode`, independent per strip)**: `0` = band threshold, `1` = auto beat (own `BeatDetector` per strip), `2` = manual pads only.
+2. **Physical strips as containers of light layers** ([src/layer.h](../src/layer.h), [src/layer.cpp](../src/layer.cpp), [src/beat.h](../src/beat.h), [src/beat.cpp](../src/beat.cpp)):
+   - **`PhysicalStripSettings`** (per pin): `ledCount`, `brightnessPct`, `layerCount` (1..4).
+   - **`LayerSettings`** (up to 4 per strip): mode, effect, enabled, intensity, band, threshold, beat sensitivity, retrigger, motion, colour.
+   - Every layer accumulates into its strip's **linear** buffer; the strip applies gamma and transmits **once** per frame.
+   - Per-layer `BeatDetector`, so layers in the same strip can lock to different rhythms.
+   - **Solo** (runtime-only) previews a single layer.
+   - **Trigger input (`mode`, independent per layer)**: `0` = band threshold, `1` = auto beat (own `BeatDetector` per layer), `2` = manual pads only.
    - **Effects (`effect`)**: `0` Jet (travelling blob), `1` Flash (whole strip, hold-sustainable), `2` Burst (centre-outward shockwave), `3` Sparkle (glitter shower).
    - **Beat detection**: `SpectrumAnalyzer::bandFlux(centerHz, widthHz)` drives a per-strip `BeatDetector` (spectral-flux onset, adaptive `mean + k·σ` threshold from `beatSensitivityPct`, 180 ms refractory, median-IOI tempo folded to 60–170 BPM).
    - **Pad hold**: `setPadHeld()` sustains Flash/Sparkle and re-fires Jet at the retrigger gap; a 2.5 s keepalive timeout releases a pad if the browser disconnects.
+   - **Intensity**: each layer's `intensityPct` scales its contribution in `LayerEngine::render()`.
    - **Motion (`loop`)**:
      - `Loop (ring)` (`loop = 1`): wraps seamlessly around `0 ↔ ledCount - 1` (or bounces continuously in Ping-pong).
      - `One-shot` (`loop = 0`): disappears once the blob's trailing edge exits the strip.
@@ -56,7 +62,7 @@ built-in microphone.)*
    - **LED Count Calibration mode**: adjusting `ledCount` (or toggling `Calibrate`) blanks the strip and lights only LED `ledCount - 1` so the physical end of the strip can be found visually. Automatically exits after 3.5 s or as soon as any other control is touched.
 4. **On-Device LCD Display** ([src/display.h](../src/display.h), [src/display.cpp](../src/display.cpp)):
    - All screen layout, colour helpers, spectrum bars, band rectangles, level meters, HUD and boot banner now live in a `Display` class; [src/main.cpp](../src/main.cpp) only orchestrates.
-   - Per-strip meter labels show the trigger input: `S1` (threshold), `B1` (auto beat), `M1` (manual pads).
+   - One meter per **physical** strip (merged output), labelled `S1`/`B1`/`M1` from the dominant layer's trigger input, plus `.N` when the strip holds N layers. Per-layer detail lives on the phone.
    - Real-time 30-band colour spectrogram.
    - Overlaid **empty coloured rectangle** on the spectrogram showing each strip's `[loHz, hiHz]` band window, with a **downward-pointing triangle on the top edge** marking `centerHz`.
    - Per-strip level meters (`S1`, `S2`) with white threshold ticks.
@@ -67,12 +73,13 @@ built-in microphone.)*
    - Organized into 6 logical cards:
      1. **Microphone (global)** (gain + broadband stats)
      2. **Select strip to edit** (`Strip 1` / `Strip 2` tabs + title + Power switch)
-     3. **Triggering conditions** (`Trigger input` = Threshold / Auto Beat / Manual pads, live level bar with **directly draggable threshold marker** in threshold mode, beat pulse + BPM + `Beat sensitivity` in beat mode, `Band centre`, `Band width`)
-     4. **Display parameters** (**real-time HTML5 Canvas Colour Wheel** + colour swatch square, `Max brightness`)
-     5. **Animation parameters** (`Triggered effect` = Jet / Flash / Burst / Sparkle, `Motion`, `Direction`, `Blob/Jet length`, `Speed`, `Fade time`, `Retrigger gap` + `Retrig ON / Single`)
+     3. **Trigger input** (`Threshold` / `Auto Beat` / `Manual`, live level bar with **directly draggable threshold marker** in threshold mode, beat pulse + BPM + `Beat sensitivity` in beat mode, `Band centre`, `Band width`)
+     4. **Display** (**real-time HTML5 Canvas Colour Wheel** + swatch, `Layer intensity`, `Strip max brightness`)
+     5. **Effect & motion** (`Triggered effect` = Jet / Flash / Burst / Sparkle, `Topology`, `Direction`, `Blob/jet length`, `Speed`, `Fade time`, `Retrigger gap` + `Retrig ON / Single`)
      6. **Strip calibration** (`LEDs on this strip 1..1000`, `-10 / ← / → / +10` step buttons, `Calibrate` toggle)
-   - **Full-Screen Effect Pads** (`/api/tap?strip=<i>&effect=<0..3>&down=<0|1>`): an overlay split into one colour-coded group per strip, four multi-touch pads each, press-and-hold support.
-   - **Auto-save + 3 NVS Preset Banks (`Save 1..3` / `Load 1..3`) + Factory Reset** (blob format `kSettingsBlobVersion = 4`, 26 bytes/strip, with automatic v3 migration).
+   - **Full-Screen Effect Pads** (`/api/tap?strip=<p>&layer=<l>&effect=<0..3>&down=<0|1>`): one colour-coded group **per layer**, four multi-touch pads each, press-and-hold support.
+   - **Strip/Layer selection**: `Strip 1` / `Strip 2` tabs, then `Layer 1..4` tabs, plus `+ Add layer`, `Remove` and `Solo`.
+   - **Auto-save + 3 NVS Preset Banks (`Save 1..3` / `Load 1..3`) + Factory Reset** (blob format `kSettingsBlobVersion = 5`, 202 bytes, with automatic v4/v3 migration).
 
 ---
 
@@ -117,20 +124,19 @@ Completed:
 2. **Settings + storage consolidated** into [src/settings.h](../src/settings.h) / [src/settings.cpp](../src/settings.cpp). `settings_blob.*` and `store.*` are gone; `SettingsStore` (NVS), the versioned blob encoder/decoder and the v3→v4 migration live there.
 3. **`src/main.cpp` is now orchestration only** (~250 lines): `setup()`, `loop()`, `renderStrip()`, `handleButtons()`.
 
-### Priority 2 — Multi-layer strips ("virtual strips" inside one physical strip)
-The user's insight (2026-11-07): **the object that glows is not the physical strip.**
-A physical strip is a *container*; several independent light objects ("layers" /
-"virtual strips") should live inside it, each with its own frequency band, trigger
-input, colour, speed, and intensity weight. They all accumulate into the same
-linear frame buffer, so overlapping beams blend additively and gamma is applied
-once at the output edge — the exact reason `LedStrip::buf_` is linear float.
+### Priority 2 — Multi-layer strips ✅ DONE (2026-11-07)
+Implemented exactly as planned:
+- `PhysicalStripSettings` (container: `ledCount`, `brightnessPct`, `layerCount`) and
+  `LayerSettings` (the glowing object) are separate types in [src/settings.h](../src/settings.h).
+- `LayerEngine` ([src/layer.h](../src/layer.h), [src/layer.cpp](../src/layer.cpp)) replaced `BlobEngine`; it renders one layer and is scaled by `intensityPct`.
+- `main.cpp` does `clear() → for each live layer (respecting solo) update+render → show()`.
+- Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
+- GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
-Planned shape:
-- `PhysicalStrip` (was `LedStrip`): GPIO/RMT channel, `ledCount`, linear `buf_`, one `show()`.
-- `LightLayer`: its own `StripSettings`-like config + `BlobEngine` + `BeatDetector`, with an `intensityPct` weight.
-- `PhysicalStrip::render(layers, n)`: loop layers → `engine.render(strip)` → single `show()`.
-- Persistence: per-physical-strip layer count + a fixed `kMaxLayersPerStrip` array in the blob (bump to v5).
-- GUI: the strip tab gains an "Layers" section — add/remove up to N layers, each with its own sub-panel.
+### Remaining work after this
+- **On-hardware verification** is still the top item: beat lock on real music, hold
+  feel, and whether 4 layers on one strip at 100 % brightness is too much current
+  (see the 5 V supply note in SPEC §2).
 
 ### Priority 3 — Future Architecture Explorations (Documented in `docs/JOURNAL.md`)
 - **Multi-controller phone app / UDP or BLE control**: having multiple M5Sticks act

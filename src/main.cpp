@@ -5,9 +5,9 @@
 
 #include "audio_fft.h"
 #include "beat.h"
-#include "blob_mode.h"
 #include "config.h"
 #include "display.h"
+#include "layer.h"
 #include "settings.h"
 #include "strip.h"
 #include "webui.h"
@@ -15,9 +15,13 @@
 namespace {
 
 SpectrumAnalyzer analyzer;
-BeatDetector beats[kStripCount];
 LedStrip strips[kStripCount];
-BlobEngine engines[kStripCount];
+
+// One engine and one beat detector per LAYER: layers inside the same physical
+// strip must be able to follow different rhythms.
+LayerEngine engines[kStripCount][kMaxLayersPerStrip];
+BeatDetector beats[kStripCount][kMaxLayersPerStrip];
+
 Settings settings;
 SettingsStore store;
 WebUi web;
@@ -56,55 +60,79 @@ void finishBanner() {
   display.finishBanner(WebUi::kSsid, web.enabled(), web.ip());
 }
 
-// One strip's frame: hear its band, advance its trigger input, draw, emit.
+// One physical strip's frame: every live layer hears its own band, advances its
+// own trigger input, and draws into the strip's shared linear buffer. A single
+// show() then gamma-encodes and clocks the merged result out.
 void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
-  const StripSettings &s = settings.strip[i];
+  const PhysicalStripSettings &ps = settings.phys[i];
   LedStrip &strip = strips[i];
-  BlobEngine &engine = engines[i];
-
-  if (!s.enabled) {
-    engine.reset();
-    strip.clear();
-    strip.show(s.brightnessPct);
-    return;
-  }
-
-  const float level = analyzer.bandLevel((float)s.centerHz, (float)s.widthHz);
+  const size_t count = ps.layerCount < 1 ? 1 : ps.layerCount;
+  const int8_t solo = web.soloLayer(i);
   const uint32_t dtMs = (uint32_t)(dtSec * 1000.0f + 0.5f);
-  const BeatInfo beat = beats[i].update(
-      analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), dtMs,
-      s.beatSensitivityPct);
 
-  uint8_t padEffect = StripSettings::kEffectJet;
-  const int8_t hold = web.consumeHold(i, padEffect);
-  if (hold >= 0) {
-    engine.setPadHeld(hold > 0, padEffect, s);
-  }
-  if (web.consumeTap(i, padEffect)) {
-    engine.triggerEffect(padEffect, s);
-  }
+  strip.clear();
 
-  if (web.isCalibrating(i, nowMs)) {
-    strip.showCalibrationDot(s.ledCount, s.r, s.g, s.b, s.brightnessPct);
-  } else {
-    engine.update(level, beat.onBeat, nowMs, dtSec, s);
-    strip.clear();
+  for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+    LayerSettings &s = settings.layer[i][l];
+    LayerEngine &engine = engines[i][l];
+    LayerTelemetry &lt = tele.strip[i].layer[l];
+
+    if (l >= count || solo >= 0) {
+      // Not part of this strip, or muted by solo: keep it quiet and idle.
+      engine.reset();
+      lt = LayerTelemetry();
+      continue;
+    }
+
+    const float level =
+        analyzer.bandLevel((float)s.centerHz, (float)s.widthHz);
+    const BeatInfo beat = beats[i][l].update(
+        analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), dtMs,
+        s.beatSensitivityPct);
+
+    uint8_t padEffect = LayerSettings::kEffectJet;
+    const int8_t hold = web.consumeHold(i, l, padEffect);
+    if (hold >= 0) {
+      engine.setPadHeld(hold > 0, padEffect);
+    }
+    if (web.consumeTap(i, l, padEffect)) {
+      engine.triggerEffect(padEffect, s, ps.ledCount);
+    }
+
+    if (!s.enabled) {
+      engine.reset();
+      lt.levelPct = (uint8_t)(level * 100.0f + 0.5f);
+      lt.bpm = beats[i][l].bpm();
+      continue;
+    }
+
+    engine.update(level, beat.onBeat, nowMs, dtSec, s, ps.ledCount);
     engine.render(strip, s);
-    strip.show(s.brightnessPct);
+
+    lt.levelPct = (uint8_t)(level * 100.0f + 0.5f);
+    lt.brightPct = (uint8_t)(engine.peak() * 100.0f + 0.5f);
+    lt.blobs = (uint8_t)engine.activeCount();
+    lt.beatPct = (uint8_t)(beat.pulse * 100.0f + 0.5f);
+    lt.bpm = beats[i][l].bpm();
   }
 
-  tele.strip[i].levelPct = (uint8_t)(level * 100.0f + 0.5f);
+  // Calibration shows only the physical tip, so it replaces the merged frame.
+  if (web.isCalibrating(i, nowMs)) {
+    const LayerSettings &s = settings.layer[i][web.editLayer(i)];
+    strip.showCalibrationDot(ps.ledCount, s.r, s.g, s.b, ps.brightnessPct);
+  } else {
+    strip.show(ps.brightnessPct);
+  }
   tele.strip[i].brightPct = (uint8_t)(strip.peak() * 100.0f + 0.5f);
-  tele.strip[i].blobs = (uint8_t)engine.activeCount();
-  tele.strip[i].beatPct = (uint8_t)(beat.pulse * 100.0f + 0.5f);
-  tele.strip[i].bpm = beats[i].bpm();
 }
 
 void handleButtons() {
   if (M5.BtnA.wasClicked()) {
-    // Manual test trigger: the fastest way to judge effect, speed and colour.
+    // Manual test trigger on every live layer.
     for (size_t i = 0; i < kStripCount; i++) {
-      engines[i].trigger(settings.strip[i]);
+      for (size_t l = 0; l < settings.phys[i].layerCount; l++) {
+        engines[i][l].trigger(settings.layer[i][l], settings.phys[i].ledCount);
+      }
     }
   }
 
@@ -152,9 +180,11 @@ void setup() {
   }
 
   for (size_t i = 0; i < kStripCount; i++) {
-    strips[i].begin(kStripPins[i], settings.strip[i].ledCount, (uint8_t)i);
-    engines[i].reset();
-    beats[i].reset();
+    strips[i].begin(kStripPins[i], settings.phys[i].ledCount, (uint8_t)i);
+    for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+      engines[i][l].reset();
+      beats[i][l].reset();
+    }
   }
 
   if (!analyzer.begin(kSampleRate)) {
@@ -199,7 +229,7 @@ void loop() {
   // ledCount is a runtime parameter: react to it changing. setCount() is a
   // no-op when the value did not change.
   for (size_t i = 0; i < kStripCount; i++) {
-    strips[i].setCount(settings.strip[i].ledCount);
+    strips[i].setCount(settings.phys[i].ledCount);
   }
 
   if (!analyzer.update()) {
@@ -238,10 +268,11 @@ void loop() {
     char out[80];
     size_t n = (size_t)snprintf(out, sizeof(out), "lvl %3.0f%% %+4.0f dBFS",
                                 analyzer.level() * 100.0f, analyzer.levelDb());
-    for (size_t i = 0; i < kStripCount && n + 16 < sizeof(out); i++) {
-      n += (size_t)snprintf(out + n, sizeof(out) - n, " | s%u %3.0f%% %ubpm",
-                            (unsigned)i + 1, strips[i].peak() * 100.0f,
-                            (unsigned)beats[i].bpm());
+    for (size_t i = 0; i < kStripCount && n + 14 < sizeof(out); i++) {
+      n += (size_t)snprintf(out + n, sizeof(out) - n, " | p%u %uL %3.0f%%",
+                            (unsigned)i + 1,
+                            (unsigned)settings.phys[i].layerCount,
+                            strips[i].peak() * 100.0f);
     }
     Serial.println(out);
   }

@@ -33,20 +33,22 @@ code never has to worry about two things touching the pixel buffer at once.
                                         │  bandLevel(center, width)  (0..1, per strip)
                                         ▼
                         ┌───────────────────────────────┐
-                        │  BlobEngine   (one per strip) │
-                        │  blob_mode.cpp                │
+                        │  LayerEngine  (1 per LAYER)   │
+                        │  layer.cpp                    │
                         │  owns: effect pool, flash/    │
                         │  sparkle envelopes, trigger   │
                         │  input (threshold / beat)     │
                         └───────────────┬───────────────┘
-                                        │  addRing(pos, halfWidth, amp, r, g, b)
-                                        │  → adds *linear* intensity into a frame
+                                        │  addRing / addFill / addSparkles
+                                        │  → adds *linear* intensity into the
+                                        │    PHYSICAL strip's shared buffer
                                         ▼
                         ┌───────────────────────────────┐
-                        │  LedStrip     (one per strip) │
+                        │  LedStrip  (the CONTAINER,    │
+                        │  one per pin)                 │
                         │  strip.cpp                    │
-                        │  owns: frame buffer, gamma LUT,
-                        │        RMT transmission
+                        │  owns: ledCount, linear frame │
+                        │  buffer, gamma, RMT output    │
                         └───────────────┬───────────────┘
                                         ▼
                                    G32 / G33
@@ -102,7 +104,30 @@ strip.show();                                               // emit
 
 ---
 
-## Why the blobs are not inside `LedStrip`
+## Containers and layers
+
+Up to **4 `LayerEngine` instances** share one `LedStrip`. The strip loop in
+`main.cpp` is now:
+
+```cpp
+strip.clear();
+for (size_t l = 0; l < layerCount; l++) {
+  if (solo >= 0 && l != solo) continue;        // solo preview
+  LayerSettings &layer = settings.layer[i][l];
+  engine[l].update(levelOf(layer), beatOf(layer).onBeat, nowMs, dtSec, layer, ledCount);
+  engine[l].render(strip, layer);              // amp scaled by intensityPct
+}
+strip.show(brightnessPct);                     // ONE gamma encode + ONE RMT frame
+```
+
+Two consequences worth remembering:
+
+* **`ledCount` is a container property**, which is why `LayerEngine::update()` takes
+  it as a parameter instead of storing it.
+* **`intensityPct` is applied at render time** (the amp is multiplied before it is
+  added), so lowering a layer's weight never changes its colour.
+
+## Why the layers are not inside `LedStrip`
 
 It is a deliberate split between *what the light should look like* and *how to get
 pixels onto the wire*. Three reasons, in order of how much they matter:
@@ -215,14 +240,14 @@ or in ESP-DSP. If that is not worth 35 lines and one extra env, delete the
 | You want to… | Touch |
 |--------------|-------|
 | add a parameter | `settings.h` (field + clamp + default) → `settings.cpp` (bytes, bump version) → `webui.cpp` (SPEC array + a line in `handleParams`) → SPEC.md table |
-| add an effect | `StripSettings::Effect` in `settings.h` → `BlobEngine::triggerEffect()` + `render()` in `blob_mode.cpp` → pad list `PADEFFS` in `webui.cpp` |
-| add a trigger input | `StripSettings::Mode` → the `shouldTrigger` block at the end of `BlobEngine::update()` → mode buttons in `webui.cpp` |
+| add an effect | `LayerSettings::Effect` in `settings.h` → `LayerEngine::triggerEffect()` + `render()` in `layer.cpp` → pad list `PADEFFS` in `webui.cpp` |
+| add a trigger input | `LayerSettings::Mode` → the `shouldTrigger` block at the end of `LayerEngine::update()` → mode buttons in `webui.cpp` |
 | change beat behaviour | `beat.cpp` (threshold, refractory, tempo range) or `SpectrumAnalyzer::bandFlux()` for the onset function |
 | move a strip to another pin | `kStripPins` in `config.h` |
 | change the LED ceiling | `kMaxLedsPerStrip` in `config.h` (buffers are sized from it) |
 | change the look of an effect | `addRing()` / `addFill()` / `addSparkles()` in `strip.cpp` (shape) or `update()` in `blob_mode.cpp` (motion/life) |
 | change the LCD layout | `display.cpp` (`computeLayout()`, `draw*`) |
-| support several light layers per strip | `HANDOFF.md` Priority 2 — engine per layer, one `show()` per physical strip |
+| several light layers per strip | already implemented — keep the invariant *one `show()` per physical strip* |
 
 ---
 

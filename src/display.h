@@ -8,8 +8,9 @@
 
 // On-device LCD renderer (240 x 135 landscape on M5StickS3 / M5StickC Plus2).
 //
-// Owns all screen layout coordinates and dirty-rectangle tracking so only
-// changed pixels are sent over SPI each frame.
+// The screen shows one row and one meter per PHYSICAL strip: the merged light
+// that is actually on the wire. Per-layer detail belongs to the phone, where
+// there is room for it. Only changed pixels are repainted.
 class Display {
 public:
   void begin();
@@ -27,7 +28,10 @@ private:
   void computeLayout();
   int freqToX(float hz) const;
   uint16_t barColor(int y) const;
-  uint16_t stripColor(const StripSettings &s) const;
+  // Colour of a physical strip: the first enabled layer's colour, else grey.
+  uint16_t stripColor(const Settings &settings, size_t i) const;
+  // Index of the first enabled layer of strip i, or 0 when none is on.
+  size_t primaryLayer(const Settings &settings, size_t i) const;
 
   void drawSpectrum(const float *bands);
   void drawStripChrome(const float *bands, const Settings &settings);

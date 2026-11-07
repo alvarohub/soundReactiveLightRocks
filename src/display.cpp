@@ -47,8 +47,21 @@ void Display::computeLayout() {
   hintY_ = h - 12;
 }
 
-uint16_t Display::stripColor(const StripSettings &s) const {
-  return s.enabled ? rgb565(s.r, s.g, s.b) : kGrey;
+size_t Display::primaryLayer(const Settings &settings, size_t i) const {
+  const size_t count = settings.phys[i].layerCount;
+  for (size_t l = 0; l < count && l < kMaxLayersPerStrip; l++) {
+    if (settings.layer[i][l].enabled) {
+      return l;
+    }
+  }
+  return 0;
+}
+
+uint16_t Display::stripColor(const Settings &settings, size_t i) const {
+  const size_t l = primaryLayer(settings, i);
+  const LayerSettings &s = settings.layer[i][l];
+  const bool anyOn = settings.phys[i].layerCount > 0 && s.enabled;
+  return anyOn ? rgb565(s.r, s.g, s.b) : kGrey;
 }
 
 uint16_t Display::barColor(int y) const {
@@ -113,7 +126,8 @@ void Display::drawStripChrome(const float *bands, const Settings &settings) {
   int xCtr[kStripCount] = {};
 
   for (size_t i = 0; i < kStripCount; i++) {
-    const StripSettings &s = settings.strip[i];
+    // The rectangle shows where the strip's dominant layer listens.
+    const LayerSettings &s = settings.layer[i][primaryLayer(settings, i)];
     float lo = (float)s.centerHz - (float)s.widthHz * 0.5f;
     float hi = (float)s.centerHz + (float)s.widthHz * 0.5f;
     if (lo < kAudioMinHz) {
@@ -130,10 +144,8 @@ void Display::drawStripChrome(const float *bands, const Settings &settings) {
     }
     xCtr[i] = freqToX((float)s.centerHz);
 
-    const uint32_t key = ((uint32_t)s.enabled << 28) |
-                         ((uint32_t)(s.mode & 0x0F) << 24) |
-                         ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) |
-                         (uint32_t)s.b;
+    const uint32_t key = ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) |
+                         (uint32_t)s.b | ((uint32_t)s.enabled << 28);
     if (xLo[i] != prevBandLo_[i] || xHi[i] != prevBandHi_[i] ||
         xCtr[i] != prevBandCtr_[i] || key != prevChrome_[i]) {
       if (prevBandLo_[i] >= 0 && prevBandHi_[i] >= prevBandLo_[i]) {
@@ -155,28 +167,36 @@ void Display::drawStripChrome(const float *bands, const Settings &settings) {
       prevBar_[b] = -1;
     }
     for (size_t i = 0; i < kStripCount; i++) {
-      const StripSettings &s = settings.strip[i];
-      const char prefix = s.mode == StripSettings::kBeat
-                              ? 'B'
-                              : (s.mode == StripSettings::kManual ? 'M' : 'S');
+      // Meter label: trigger input of the dominant layer + layer count when
+      // the container holds more than one.
+      const size_t l = primaryLayer(settings, i);
+      const LayerSettings &s = settings.layer[i][l];
+      const char prefix = !s.enabled ? '-'
+                          : (s.mode == LayerSettings::kBeat ? 'B'
+                             : (s.mode == LayerSettings::kManual ? 'M' : 'S'));
+      const uint8_t layers = settings.phys[i].layerCount;
       M5.Display.setTextSize(1);
-      M5.Display.setTextColor(stripColor(s), kBlack);
+      M5.Display.setTextColor(stripColor(settings, i), kBlack);
       M5.Display.setCursor(2, meterY_[i]);
-      M5.Display.printf("%c%u", prefix, (unsigned)i + 1);
+      if (layers > 1) {
+        M5.Display.printf("%c%u.%u", prefix, (unsigned)i + 1,
+                          (unsigned)layers);
+      } else {
+        M5.Display.printf("%c%u", prefix, (unsigned)i + 1);
+      }
     }
   }
 
   drawSpectrum(bands);
 
   for (size_t i = 0; i < kStripCount; i++) {
-    const StripSettings &s = settings.strip[i];
-    const uint16_t col = stripColor(s);
+    const uint16_t col = stripColor(settings, i);
     M5.Display.drawRect(xLo[i], barTop_, xHi[i] - xLo[i] + 1,
                         barBottom_ - barTop_ + 1, col);
     M5.Display.fillTriangle(xCtr[i] - 3, barTop_ - 6, xCtr[i] + 3, barTop_ - 6,
                             xCtr[i], barTop_ - 1, col);
-    const int y = bandRowY_[i];
     if (changed) {
+      const int y = bandRowY_[i];
       M5.Display.fillRect(0, y, M5.Display.width(), 2, kBlack);
       M5.Display.fillRect(xLo[i], y, xHi[i] - xLo[i] + 1, 2, col);
     }
@@ -185,20 +205,18 @@ void Display::drawStripChrome(const float *bands, const Settings &settings) {
 
 void Display::drawMeters(const Telemetry &tele, const Settings &settings) {
   for (size_t i = 0; i < kStripCount; i++) {
-    const StripSettings &s = settings.strip[i];
-    uint8_t pct = tele.strip[i].levelPct;
-    if (s.mode == StripSettings::kBeat) {
-      pct = tele.strip[i].beatPct > pct ? tele.strip[i].beatPct : pct;
-    } else if (s.mode == StripSettings::kManual) {
-      pct = tele.strip[i].brightPct;
-    }
+    // The meter shows the merged output of the whole physical strip.
+    const uint8_t pct = tele.strip[i].brightPct;
     const int q = pct / 2;
-    const int thrQ =
-        (s.mode == StripSettings::kThreshold) ? (s.thresholdPct / 2) : -1;
-    const uint32_t key = ((uint32_t)s.enabled << 28) |
-                         ((uint32_t)(s.mode & 0x0F) << 24) |
-                         ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) |
-                         (uint32_t)s.b;
+
+    // A threshold tick only means something when the dominant layer uses the
+    // threshold input.
+    const LayerSettings &s = settings.layer[i][primaryLayer(settings, i)];
+    const int thrQ = (s.enabled && s.mode == LayerSettings::kThreshold)
+                         ? (s.thresholdPct / 2)
+                         : -1;
+    const uint32_t key = ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) |
+                         (uint32_t)s.b | ((uint32_t)s.enabled << 28);
     if (q == prevMeterQ_[i] && thrQ == prevThrQ_[i] &&
         key == prevMeterColor_[i]) {
       continue;
@@ -211,7 +229,7 @@ void Display::drawMeters(const Telemetry &tele, const Settings &settings) {
     const int fill = meterWidth_ * q / 50;
     M5.Display.fillRect(meterX_, y, meterWidth_, kMeterH, kTrack);
     if (fill > 0) {
-      M5.Display.fillRect(meterX_, y, fill, kMeterH, stripColor(s));
+      M5.Display.fillRect(meterX_, y, fill, kMeterH, stripColor(settings, i));
     }
     if (thrQ >= 0) {
       const int tick = meterX_ + meterWidth_ * thrQ / 50;
@@ -221,18 +239,12 @@ void Display::drawMeters(const Telemetry &tele, const Settings &settings) {
 }
 
 void Display::drawHud(const Telemetry &tele, const Settings &settings) {
+  // Report the tempo of the first layer that has a beat lock.
   uint16_t bpm = 0;
-  for (size_t i = 0; i < kStripCount; i++) {
-    if (settings.strip[i].mode == StripSettings::kBeat &&
-        tele.strip[i].bpm > 0) {
-      bpm = tele.strip[i].bpm;
-      break;
-    }
-  }
-  if (bpm == 0) {
-    for (size_t i = 0; i < kStripCount; i++) {
-      if (tele.strip[i].bpm > 0) {
-        bpm = tele.strip[i].bpm;
+  for (size_t i = 0; i < kStripCount && bpm == 0; i++) {
+    for (size_t l = 0; l < settings.phys[i].layerCount; l++) {
+      if (tele.strip[i].layer[l].bpm > 0) {
+        bpm = tele.strip[i].layer[l].bpm;
         break;
       }
     }

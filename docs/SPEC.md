@@ -4,7 +4,7 @@
 > happens to do today. When behaviour and this file disagree, one of them is a bug.
 > Progress against this spec is tracked in [JOURNAL.md](./JOURNAL.md).
 
-Status: **v0.3 — per-strip trigger inputs (threshold / auto beat / manual pads), four effects (jet, flash, burst, sparkle), full-screen fingertip pad view, M5StickS3 + M5StickC Plus2**.
+Status: **v0.4 — physical strips as containers for up to 4 independent light layers, per-layer trigger inputs (threshold / auto beat / manual pads), four effects, per-layer intensity, solo preview, full-screen pad view per layer, M5StickS3 + M5StickC Plus2**.
 
 ---
 
@@ -13,6 +13,9 @@ Status: **v0.3 — per-strip trigger inputs (threshold / auto beat / manual pads
 Drive two NeoPixel strips so they react to music from the room:
 
 * the strips are embedded in plastic rocks, so only their glow is visible;
+* each physical strip can hold **several independent light layers** (up to 4), each
+  with its own band, trigger input, effect, colour and intensity weight, all blended
+  into the same LEDs;
 * each strip can operate either as a **closed ring (Loop)** — light that leaves one
   end comes back at the other — or as a **linear strand (One-shot)** where blobs
   disappear once they travel past the last LED;
@@ -138,9 +141,42 @@ These rules apply to the **Jet** and **Burst** effects.
 
 ---
 
-## 5. Trigger inputs and effects
+## 5. Two objects: the physical strip and the light layer
 
-### 5.1 Trigger input (`mode`) — chosen independently per strip
+### 5.0 Containers and layers
+
+The thing that glows is **not** the strip. Two separate objects exist:
+
+| Object | Owns | Count |
+|--------|------|-------|
+| **Physical strip** | GPIO pin, RMT channel, `ledCount`, master `brightnessPct`, one linear float frame buffer | 2 (one per Grove pin) |
+| **Light layer** | band, trigger input, effect, colour, motion, `intensityPct` weight | up to **4 per physical strip** |
+
+Layers never talk to each other or to the hardware. Every layer *adds* light into
+its strip's shared **linear** buffer (`buf[i] += amp * colour`), and the strip then
+gamma-encodes and transmits **once**:
+
+```
+PhysicalStrip 1 ── ledCount 120, brightness 90%
+   ├── Layer 1  bass   160 Hz ·  threshold · jet     · orange · 100% weight
+   ├── Layer 2  highs 4 kHz   ·  auto beat · sparkle · amber  ·  70% weight
+   └── Layer 3  mids  800 Hz  ·  manual    · flash   · green  · 100% weight
+                          ↓ additive accumulation → one show()
+```
+
+Why this matters:
+
+* **Overlaps add as light.** Two beams crossing, or a flash under a jet, sum
+  correctly, because gamma is applied once at the output edge and never twice.
+* **Hue is preserved.** When the sum exceeds 1.0 the channels are scaled
+  proportionally, so a dim secondary channel never collapses to black.
+* **Independence is real.** Each layer has its own `BeatDetector`, so the bass
+  layer and the vocal layer can lock to different rhythms inside one strip.
+
+`ledCount` and `brightnessPct` belong to the **strip**; everything about *what the
+light does* belongs to the **layer**.
+
+### 5.1 Trigger input (`mode`) — chosen independently per layer
 
 | Value | Name | Behaviour |
 |-------|------|-----------|
@@ -149,9 +185,11 @@ These rules apply to the **Jet** and **Burst** effects.
 | `2` | **Manual (pads)** | The microphone is ignored; only the fingertip pads and **BtnA** fire the effect. |
 
 `thresholdPct` and the beat detector are therefore two interchangeable *inputs* to
-the same effect pipeline, not two different renderers.
+the same effect pipeline, not two different renderers. `kManual` keeps the layer
+dark until a pad (or **BtnA**) fires it, so a layer can be a pure performance
+instrument.
 
-### 5.2 Effects (`effect`) — one chosen per strip
+### 5.2 Effects (`effect`) — one chosen per layer
 
 | Value | Name | Visual |
 |-------|------|--------|
@@ -160,7 +198,7 @@ the same effect pipeline, not two different renderers.
 | `2` | **Burst** | A shockwave that splits from the strip centre outward toward both ends. |
 | `3` | **Sparkle** | A glittering shower: a pseudo-random subset of LEDs lights up per frame and decays. Holding the pad keeps the shower alive. |
 
-### 5.3 Beat detection (per strip)
+### 5.3 Beat detection (per layer)
 
 Standard onset detection, running at the ~31 fps analysis rate:
 
@@ -179,21 +217,20 @@ audio frame → FFT → band-limited spectral flux → adaptive threshold → on
 * **Tempo**: median of the last 8 inter-onset intervals, folded into 60–170 BPM.
 * **Pulse**: a raised decay (`τ ≈ 120 ms`) published as `beatPct` for the UI meter.
 
-Because each strip has its own detector, a bass-band strip and a vocal-band strip
-can lock to different rhythms — that is what makes the two rocks feel independent.
+Because every layer has its own detector, two layers inside the *same* physical
+strip can lock to different rhythms — that is where the layered look comes from.
 
 ### 5.4 Retrigger
 
 * `retrigger = 1`: a new effect may fire once `retriggerMs` has elapsed since the
-  last one on that strip.
-* `retrigger = 0` (**Single**): nothing new fires while any effect is still active.
+  last one **on that layer**.
+* `retrigger = 0` (**Single**): nothing new fires while that layer is still busy.
 
-## 6. Mode 2 — reserved
+## 6. Solo preview
 
-Reserved for the next architectural step: multiple independent *layers* rendering
-into one physical strip (several light beams with their own thresholds, colours and
-beat behaviour, summed in the linear frame buffer). The accumulation buffer already
-exists in `LedStrip`, so this needs no driver change.
+The GUI has a **Solo** button per layer tab. While solo is active only that layer
+renders; every other layer of that physical strip idles. Solo is a preview tool, so
+it is **runtime-only** and never written to flash.
 
 ---
 
@@ -204,27 +241,37 @@ each build can differ, and it can be re-tuned at any time. Everything is clamped
 the way in, so no value coming over HTTP (or out of flash) can reach the strip
 driver out of range.
 
-### Per strip
+### Per physical strip (the container)
+
+| Parameter | Range | Default | Notes |
+|-----------|-------|---------|-------|
+| `ledCount` | 1…1000 | 100 | Actual number of LEDs on this strip (shows the calibration dot at `ledCount-1` while tuning) |
+| `brightnessPct` | 1…100 | 100 | Master output ceiling for the whole strip, applied after all layers are merged |
+| `layerCount` | 1…4 | 1 | How many light layers are live inside this strip |
+
+### Per light layer (the glowing object)
 
 | Parameter | Range | Default | Notes |
 |-----------|-------|---------|-------|
 | `mode` | 0/1/2 | 0 | Trigger input: `0` = band threshold, `1` = auto beat, `2` = manual pads |
 | `effect` | 0/1/2/3 | 0 | `0` = jet, `1` = flash, `2` = burst, `3` = sparkle |
-| `enabled` | 0/1 | 1 | Power. Off = strip dark, settings kept |
-| `brightnessPct` | 1…100 | 100 | Global max brightness ceiling for this strip |
-| `ledCount` | 1…1000 | 100 | Actual number of LEDs on this strip (shows calibration dot at `ledCount-1` while tuning) |
-| `centerHz` | 65…7600 | 150 / 1000 | Band centre. Strip 1 bass, strip 2 mids by default |
-| `widthHz` | 40…16000 | 250 / 1400 | Band width; wide = behaves like broadband. Also the beat detector's listening window |
-| `thresholdPct` | 0…100 | 35 / 40 | Band level that fires the effect in **Threshold** mode (drag directly on the live level meter) |
-| `beatSensitivityPct` | 0…100 | 55 | Beat detector eagerness in **Auto beat** mode (0 = only obvious beats) |
-| `retrigger` | 0/1 | 1 | `1` = retrigger after `retriggerMs`, `0` = single (wait until the strip is idle) |
-| `retriggerMs` | 0…2000 | 300 | Minimum gap between effects on one strip |
+| `enabled` | 0/1 | 1 | Layer power. Off = this layer contributes nothing, settings kept |
+| `intensityPct` | 1…100 | 100 | This layer's weight in the merged output |
+| `centerHz` | 65…7600 | 150 / 1000 | Band centre (strip 1 layer 1 bass, strip 2 layer 1 mids by default) |
+| `widthHz` | 40…16000 | 250 / 1400 | Band width; also the beat detector's listening window |
+| `thresholdPct` | 0…100 | 35 / 40 | Level that fires the effect in **Threshold** mode (drag the white marker) |
+| `beatSensitivityPct` | 0…100 | 55 | Detector eagerness in **Auto beat** mode |
+| `retrigger` | 0/1 | 1 | `1` = retrigger after `retriggerMs`, `0` = single (wait until idle) |
+| `retriggerMs` | 0…2000 | 300 | Minimum gap between effects on this layer |
 | `blobLeds` | 1…1000 | 8 / 5 | Length of the light group (jet / burst) |
 | `speed` | 1…500 | 45 / 80 | LEDs per second |
 | `fadeMs` | 50…10000 | 2000 / 1200 | Time for an effect to fade to nothing |
-| `color` | `000000`…`FFFFFF` | `FF6A00` / `0066FF` | Effect colour |
-| `reverse` | 0/1/2 | 0 | `0` = forward (`0→N-1`), `1` = reverse (`N-1→0`), `2` = ping-pong (`0↔N-1`) |
+| `color` | `000000`…`FFFFFF` | `FF6A00` / `0066FF` | Layer colour |
+| `reverse` | 0/1/2 | 0 | `0` = forward (`0→N-1`), `1` = reverse (`N-1→0`), `2` = ping-pong |
 | `loop` | 0/1 | 1 | `1` = loop / continuous bounce, `0` = one-shot |
+
+Layer 2 of strip 1 ships pre-configured (sparkle, 4 kHz window, 70 % weight) so
+"add layer" immediately does something visible.
 
 ### Global
 
@@ -232,8 +279,9 @@ driver out of range.
 |-----------|-------|---------|-------|
 | `gainDb` | 0, 6, 12, 18 | 0 | Microphone gain, hardware quantised |
 
-Changing `ledCount` re-initialises the strip driver. It is safe but not free, so the
-UI only sends it when the slider is released.
+`ledCount` is a property of the physical strip, so it is sent without a `layer`.
+Changing it re-initialises the strip driver: safe but not free, so the UI only sends
+it when the slider is released.
 
 ---
 
@@ -244,17 +292,22 @@ UI only sends it when the slider is released.
 * The content takes **5/6 of the viewport width**, leaving the right **1/6**
   (`16.7vw`) as an empty thumb-scroll gutter so scrolling never moves sliders or
   taps buttons by accident.
-* Strip 1 / Strip 2 tabs select which strip the parameter card edits.
+* **Strip 1 / Strip 2** tabs select the physical container; **Layer 1..4** tabs
+  inside it select which layer the cards below edit.
+* **+ Add layer** / **Remove** change how many layers that strip holds; **Solo**
+  previews one layer alone.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
 * A **Trigger input** selector switches that strip between `Threshold`,
   `Auto Beat` and `Manual (Pads)`; the panel below shows only what is relevant
   (level bar + threshold marker, beat pulse + BPM + sensitivity, …).
 * A **Triggered effect** selector chooses among `Jet`, `Flash`, `Burst`, `Sparkle`.
-* **Full-Screen Effect Pads**: a dedicated overlay split into one group per strip,
-  each with the four effect pads. Pads are multi-touch and support press-and-hold
-  (Flash and Sparkle sustain; Jet re-fires at the retrigger gap). Each group shows
-  that strip's live trigger state and output level.
+* **Layer intensity** scales one layer against the others; **Strip max brightness**
+  scales the merged result.
+* **Full-Screen Effect Pads**: a dedicated overlay with **one group per layer**
+  (strip + layer in the heading), each with the four effect pads. Pads are
+  multi-touch and support press-and-hold (Flash and Sparkle sustain; Jet re-fires at
+  the retrigger gap). Each group shows that layer's live trigger state and output.
 * Live readouts: broadband level, dBFS, dominant frequency, per-strip beat pulse /
   BPM, active effect count, and a bar showing the level against the threshold.
 
@@ -264,8 +317,10 @@ UI only sends it when the slider is released.
 |--------|------|---------|
 | GET | `/` | The control page |
 | GET | `/api/state` | Full state + telemetry + preset availability as JSON |
-| POST | `/api/params?strip=<i>&<key>=<value>`, `POST /api/params?gainDb=<n>` | Change live settings (204, no body) |
-| POST | `/api/tap?strip=<i>&effect=<0..3>&down=<0\|1>` | Fire an effect from a pad; `down=1` also starts/refreshes the hold |
+| POST | `/api/params?strip=<p>&<key>=<value>` | Change the **physical** strip (`ledCount`, `brightnessPct`, `layerCount`, `solo`) |
+| POST | `/api/params?strip=<p>&layer=<l>&<key>=<value>` | Change one **layer** (204, no body) |
+| POST | `/api/params?gainDb=<n>` | Microphone gain |
+| POST | `/api/tap?strip=<p>&layer=<l>&effect=<0..3>&down=<0\|1>` | Fire an effect from a pad; `down=1` also starts/refreshes the hold |
 | POST | `/api/preset?slot=<1\|2\|3>&action=<save\|load>` | Save current state to preset bank 1–3, or load a bank into live state |
 | POST | `/api/reset` | Factory reset (restores hardcoded code defaults, keeps presets) |
 
@@ -284,9 +339,10 @@ Unknown arguments are ignored; out-of-range values are clamped.
   them to `live`).
 * **Factory reset** restores the hardcoded defaults from `defaultSettings()` in
   code (never overwritten by user saves) without deleting the 3 preset banks.
-* The settings blob is versioned (`v4`, 26 bytes per strip) and fixed-layout.
-  A `v3` blob is migrated automatically on load (missing fields take their
-  defaults); any other version falls back to the code defaults.
+* The settings blob is versioned (`v5`: 4-byte physical block + 24-byte layer block
+  × 4 layers per strip, 202 bytes total) and fixed-layout.
+  A `v4` or `v3` blob is migrated automatically on load: its single "strip" becomes
+  the physical container plus layer 0. Any other version falls back to defaults.
 
 ---
 
@@ -294,7 +350,7 @@ Unknown arguments are ignored; out-of-range values are clamped.
 
 | Control | Action |
 |---------|--------|
-| Screen | Spectrum bars, band markers for the selected strip, two level meters, AP status |
+| Screen | Spectrum bars, the dominant layer's band per strip, one merged output meter per strip (`S1`/`B1`/`M1`, plus `.N` when the strip holds N layers), AP status |
 | BtnA click | Manual test trigger on both strips (tune the look without music) |
 | BtnA hold | Toggle the access point |
 | BtnB click | Cycle mic gain 0 → 6 → 12 → 18 → 0 |

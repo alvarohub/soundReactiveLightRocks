@@ -9,11 +9,12 @@ constexpr char kLiveKey[] = "live";
 constexpr char kPresetKeys[SettingsStore::kPresetCount][8] = {
     "preset0", "preset1", "preset2"};
 
-// Legacy v3 layout constants so presets saved before v4 upgrade cleanly.
-constexpr uint8_t kSettingsBlobVersionV3 = 3;
-constexpr size_t kStripBlockSizeV3 = 24;
-constexpr size_t kSettingsBlobSizeV3 =
-    kSettingsHeaderSize + kStripBlockSizeV3 * kStripCount;
+// Older layouts, kept so presets written by earlier firmware still load: their
+// single "strip" becomes layer 0 of that physical strip.
+constexpr uint8_t kBlobVersionV4 = 4;
+constexpr uint8_t kBlobVersionV3 = 3;
+constexpr size_t kStripBlockV4 = 26;
+constexpr size_t kStripBlockV3 = 24;
 
 inline void put16(uint8_t *p, uint16_t v) {
   p[0] = (uint8_t)(v & 0xFF);
@@ -24,59 +25,96 @@ inline uint16_t get16(const uint8_t *p) {
   return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
-// One strip's settings <-> 26-byte block (v4):
-//   0:mode, 1:enabled, 2..3:ledCount, 4..5:centerHz, 6..7:widthHz,
-//   8:thresholdPct, 9..10:retriggerMs, 11..12:blobLeds, 13..14:speed,
-//   15..16:fadeMs, 17:reverse, 18:r, 19:g, 20:b, 21:loop, 22:brightnessPct,
-//   23:retrigger, 24:beatSensitivityPct, 25:effect
-inline void encodeStrip(const StripSettings &s, uint8_t *p) {
+// Physical block (4 bytes): ledCount(2), brightnessPct, layerCount.
+inline void encodePhys(const PhysicalStripSettings &p, uint8_t *b) {
+  put16(b + 0, p.ledCount);
+  b[2] = p.brightnessPct;
+  b[3] = p.layerCount;
+}
+
+inline void decodePhys(const uint8_t *b, PhysicalStripSettings &p) {
+  p.ledCount = get16(b + 0);
+  p.brightnessPct = b[2];
+  p.layerCount = b[3];
+}
+
+// Layer block (24 bytes): mode, effect, enabled, intensityPct, centerHz(2),
+// widthHz(2), thresholdPct, beatSensitivityPct, retriggerMs(2), blobLeds(2),
+// speed(2), fadeMs(2), reverse, loop, retrigger, r, g, b.
+inline void encodeLayer(const LayerSettings &s, uint8_t *p) {
   p[0] = s.mode;
-  p[1] = s.enabled;
-  put16(p + 2, s.ledCount);
+  p[1] = s.effect;
+  p[2] = s.enabled;
+  p[3] = s.intensityPct;
   put16(p + 4, s.centerHz);
   put16(p + 6, s.widthHz);
   p[8] = s.thresholdPct;
-  put16(p + 9, s.retriggerMs);
-  put16(p + 11, s.blobLeds);
-  put16(p + 13, s.speed);
-  put16(p + 15, s.fadeMs);
-  p[17] = s.reverse;
-  p[18] = s.r;
-  p[19] = s.g;
-  p[20] = s.b;
-  p[21] = s.loop;
-  p[22] = s.brightnessPct;
-  p[23] = s.retrigger;
-  p[24] = s.beatSensitivityPct;
-  p[25] = s.effect;
+  p[9] = s.beatSensitivityPct;
+  put16(p + 10, s.retriggerMs);
+  put16(p + 12, s.blobLeds);
+  put16(p + 14, s.speed);
+  put16(p + 16, s.fadeMs);
+  p[18] = s.reverse;
+  p[19] = s.loop;
+  p[20] = s.retrigger;
+  p[21] = s.r;
+  p[22] = s.g;
+  p[23] = s.b;
 }
 
-inline void decodeStripV3(const uint8_t *p, StripSettings &s) {
+inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
   s.mode = p[0];
-  s.enabled = p[1];
-  s.ledCount = get16(p + 2);
+  s.effect = p[1];
+  s.enabled = p[2];
+  s.intensityPct = p[3];
   s.centerHz = get16(p + 4);
   s.widthHz = get16(p + 6);
   s.thresholdPct = p[8];
-  s.retriggerMs = get16(p + 9);
-  s.blobLeds = get16(p + 11);
-  s.speed = get16(p + 13);
-  s.fadeMs = get16(p + 15);
-  s.reverse = p[17];
-  s.r = p[18];
-  s.g = p[19];
-  s.b = p[20];
-  s.loop = p[21];
-  s.brightnessPct = p[22];
-  s.retrigger = p[23];
-  s.beatSensitivityPct = 55;
-  s.effect = StripSettings::kEffectJet;
+  s.beatSensitivityPct = p[9];
+  s.retriggerMs = get16(p + 10);
+  s.blobLeds = get16(p + 12);
+  s.speed = get16(p + 14);
+  s.fadeMs = get16(p + 16);
+  s.reverse = p[18];
+  s.loop = p[19];
+  s.retrigger = p[20];
+  s.r = p[21];
+  s.g = p[22];
+  s.b = p[23];
 }
 
-inline void decodeStripV4(const uint8_t *p, StripSettings &s) {
-  decodeStripV3(p, s);
-  s.beatSensitivityPct = p[24];
-  s.effect = p[25];
+// v4 strip block -> physical container + layer 0.
+inline void decodeStripV4(const uint8_t *p, PhysicalStripSettings &phys,
+                          LayerSettings &l) {
+  l.mode = p[0];
+  l.enabled = p[1];
+  phys.ledCount = get16(p + 2);
+  l.centerHz = get16(p + 4);
+  l.widthHz = get16(p + 6);
+  l.thresholdPct = p[8];
+  l.retriggerMs = get16(p + 9);
+  l.blobLeds = get16(p + 11);
+  l.speed = get16(p + 13);
+  l.fadeMs = get16(p + 15);
+  l.reverse = p[17];
+  l.r = p[18];
+  l.g = p[19];
+  l.b = p[20];
+  l.loop = p[21];
+  phys.brightnessPct = p[22];
+  l.retrigger = p[23];
+  l.beatSensitivityPct = p[24];
+  l.effect = p[25];
+  phys.layerCount = 1;
+  l.intensityPct = 100;
+}
+
+// v3 strip block -> same, but without beatSensitivityPct / effect.
+inline void decodeStripV3(const uint8_t *p, PhysicalStripSettings &phys,
+                          LayerSettings &l) {
+  decodeStripV4(p, phys, l); // identical up to byte 23
+  l.beatSensitivityPct = 55;
+  l.effect = LayerSettings::kEffectJet;
 }
 
 } // namespace
@@ -84,8 +122,17 @@ inline void decodeStripV4(const uint8_t *p, StripSettings &s) {
 void encodeSettings(const Settings &s, uint8_t *out) {
   out[0] = kSettingsBlobVersion;
   out[1] = s.gainDb;
+  size_t n = kSettingsHeaderSize;
+
   for (size_t i = 0; i < kStripCount; i++) {
-    encodeStrip(s.strip[i], out + kSettingsHeaderSize + i * kStripBlockSize);
+    encodePhys(s.phys[i], out + n);
+    n += kPhysBlockSize;
+  }
+  for (size_t i = 0; i < kStripCount; i++) {
+    for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+      encodeLayer(s.layer[i][l], out + n);
+      n += kLayerBlockSize;
+    }
   }
 }
 
@@ -98,13 +145,28 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
   s.gainDb = in[1];
 
   if (in[0] == kSettingsBlobVersion && len == kSettingsBlobSize) {
+    size_t n = kSettingsHeaderSize;
     for (size_t i = 0; i < kStripCount; i++) {
-      decodeStripV4(in + kSettingsHeaderSize + i * kStripBlockSize, s.strip[i]);
+      decodePhys(in + n, s.phys[i]);
+      n += kPhysBlockSize;
     }
-  } else if (in[0] == kSettingsBlobVersionV3 && len == kSettingsBlobSizeV3) {
     for (size_t i = 0; i < kStripCount; i++) {
-      decodeStripV3(in + kSettingsHeaderSize + i * kStripBlockSizeV3,
-                    s.strip[i]);
+      for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+        decodeLayer(in + n, s.layer[i][l]);
+        n += kLayerBlockSize;
+      }
+    }
+  } else if (in[0] == kBlobVersionV4 &&
+             len == kSettingsHeaderSize + kStripBlockV4 * kStripCount) {
+    for (size_t i = 0; i < kStripCount; i++) {
+      decodeStripV4(in + kSettingsHeaderSize + i * kStripBlockV4, s.phys[i],
+                    s.layer[i][0]);
+    }
+  } else if (in[0] == kBlobVersionV3 &&
+             len == kSettingsHeaderSize + kStripBlockV3 * kStripCount) {
+    for (size_t i = 0; i < kStripCount; i++) {
+      decodeStripV3(in + kSettingsHeaderSize + i * kStripBlockV3, s.phys[i],
+                    s.layer[i][0]);
     }
   } else {
     return false;
