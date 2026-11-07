@@ -35,8 +35,11 @@ built-in microphone.)*
 1. **Audio & FFT Pipeline** ([src/audio_fft.h](../src/audio_fft.h), [src/audio_fft.cpp](../src/audio_fft.cpp), [src/fft_backend_espdsp.cpp](../src/fft_backend_espdsp.cpp)):
    - 512-sample frames at 16 kHz (~32 ms/frame, ~31 fps), Hann window, hardware-accelerated ESP-DSP real FFT (`-DFFT_BACKEND_ESP_DSP`).
    - Computes 30 log-spaced display bars (`65 Hz .. 7600 Hz`) plus exact energy inside each strip's `centerHz ± widthHz/2` window (`bandLevel()`).
-2. **Mode 1 — Sound-Triggered Blobs** ([src/blob_mode.h](../src/blob_mode.h), [src/blob_mode.cpp](../src/blob_mode.cpp)):
-   - Pool of up to 12 concurrent blobs per strip (dimmest recycled when full).
+2. **Per-strip trigger inputs + four effects** ([src/blob_mode.h](../src/blob_mode.h), [src/blob_mode.cpp](../src/blob_mode.cpp), [src/beat.h](../src/beat.h), [src/beat.cpp](../src/beat.cpp)):
+   - **Trigger input (`mode`, independent per strip)**: `0` = band threshold, `1` = auto beat (own `BeatDetector` per strip), `2` = manual pads only.
+   - **Effects (`effect`)**: `0` Jet (travelling blob), `1` Flash (whole strip, hold-sustainable), `2` Burst (centre-outward shockwave), `3` Sparkle (glitter shower).
+   - **Beat detection**: `SpectrumAnalyzer::bandFlux(centerHz, widthHz)` drives a per-strip `BeatDetector` (spectral-flux onset, adaptive `mean + k·σ` threshold from `beatSensitivityPct`, 180 ms refractory, median-IOI tempo folded to 60–170 BPM).
+   - **Pad hold**: `setPadHeld()` sustains Flash/Sparkle and re-fires Jet at the retrigger gap; a 2.5 s keepalive timeout releases a pad if the browser disconnects.
    - **Motion (`loop`)**:
      - `Loop (ring)` (`loop = 1`): wraps seamlessly around `0 ↔ ledCount - 1` (or bounces continuously in Ping-pong).
      - `One-shot` (`loop = 0`): disappears once the blob's trailing edge exits the strip.
@@ -51,7 +54,9 @@ built-in microphone.)*
    - Static buffers for up to `kMaxLedsPerStrip = 1000` LEDs per strip (~30 KB total RAM).
    - Raised-cosine spatial blob profile with gamma (`γ = 2.2`) applied to the blob brightness envelope (preserving RGB hue ratios during fade-out) and per-strip `brightnessPct` (`1..100%`) scaling.
    - **LED Count Calibration mode**: adjusting `ledCount` (or toggling `Calibrate`) blanks the strip and lights only LED `ledCount - 1` so the physical end of the strip can be found visually. Automatically exits after 3.5 s or as soon as any other control is touched.
-4. **On-Device LCD Display** ([src/main.cpp](../src/main.cpp)):
+4. **On-Device LCD Display** ([src/display.h](../src/display.h), [src/display.cpp](../src/display.cpp)):
+   - All screen layout, colour helpers, spectrum bars, band rectangles, level meters, HUD and boot banner now live in a `Display` class; [src/main.cpp](../src/main.cpp) only orchestrates.
+   - Per-strip meter labels show the trigger input: `S1` (threshold), `B1` (auto beat), `M1` (manual pads).
    - Real-time 30-band colour spectrogram.
    - Overlaid **empty coloured rectangle** on the spectrogram showing each strip's `[loHz, hiHz]` band window, with a **downward-pointing triangle on the top edge** marking `centerHz`.
    - Per-strip level meters (`S1`, `S2`) with white threshold ticks.
@@ -62,11 +67,12 @@ built-in microphone.)*
    - Organized into 6 logical cards:
      1. **Microphone (global)** (gain + broadband stats)
      2. **Select strip to edit** (`Strip 1` / `Strip 2` tabs + title + Power switch)
-     3. **Triggering conditions** (live level bar with **directly draggable threshold marker**, `Band centre`, `Band width`)
+     3. **Triggering conditions** (`Trigger input` = Threshold / Auto Beat / Manual pads, live level bar with **directly draggable threshold marker** in threshold mode, beat pulse + BPM + `Beat sensitivity` in beat mode, `Band centre`, `Band width`)
      4. **Display parameters** (**real-time HTML5 Canvas Colour Wheel** + colour swatch square, `Max brightness`)
-     5. **Animation parameters** (`Motion`, `Direction`, `Blob length`, `Speed`, `Fade time`, `Retrigger gap` + `Retrig ON / Single`)
+     5. **Animation parameters** (`Triggered effect` = Jet / Flash / Burst / Sparkle, `Motion`, `Direction`, `Blob/Jet length`, `Speed`, `Fade time`, `Retrigger gap` + `Retrig ON / Single`)
      6. **Strip calibration** (`LEDs on this strip 1..1000`, `-10 / ← / → / +10` step buttons, `Calibrate` toggle)
-   - **Auto-save + 3 NVS Preset Banks (`Save 1..3` / `Load 1..3`) + Factory Reset** (blob format `kSettingsBlobVersion = 3`, 24 bytes/strip).
+   - **Full-Screen Effect Pads** (`/api/tap?strip=<i>&effect=<0..3>&down=<0|1>`): an overlay split into one colour-coded group per strip, four multi-touch pads each, press-and-hold support.
+   - **Auto-save + 3 NVS Preset Banks (`Save 1..3` / `Load 1..3`) + Factory Reset** (blob format `kSettingsBlobVersion = 4`, 26 bytes/strip, with automatic v3 migration).
 
 ---
 
@@ -105,29 +111,26 @@ M5StickC Plus2. **Do not undo these patterns:**
 
 ## 3. Next Tasks on the Roadmap (Priority Order)
 
-### Priority 1 — Code Cleanup & Modularisation (Explicitly Requested by User)
-The user asked to clean up the codebase structure now that Mode 1 features are
-working:
-1. **Extract Display logic out of `src/main.cpp` into `src/display.h` & `src/display.cpp`**:
-   - Move all screen layout variables, colour helpers (`rgb565`, `barColor`,
-     `stripColor`), `freqToX`, `drawSpectrum`, `drawStripChrome`, `drawMeters`,
-     `drawHud`, `drawHint`, `showBanner`, `finishBanner`, and `computeLayout` out
-     of the anonymous namespace at the top of `src/main.cpp` into a clean
-     `Display` class or module.
-2. **Consolidate Settings & NVS Storage files**:
-   - Currently settings are split across three pairs of files: `src/settings.h`,
-     `src/settings_blob.h/.cpp`, and `src/store.h/.cpp`.
-   - Merge `settings_blob` and `store` into a single, easy-to-follow
-     `src/settings.h` + `src/settings.cpp` (or `src/storage.h/.cpp`) so there is no
-     confusion between `StripSettings` serialization and `LedStrip` hardware.
-3. **Keep `src/main.cpp` short and clean**:
-   - `src/main.cpp` should only contain high-level orchestration in `setup()` and
-     `loop()`.
+### Priority 1 — Code Cleanup & Modularisation ✅ DONE (2026-11-07)
+Completed:
+1. **Display extracted** into [src/display.h](../src/display.h) / [src/display.cpp](../src/display.cpp) as a `Display` class (layout, spectrum, band rectangles, meters, HUD, banner).
+2. **Settings + storage consolidated** into [src/settings.h](../src/settings.h) / [src/settings.cpp](../src/settings.cpp). `settings_blob.*` and `store.*` are gone; `SettingsStore` (NVS), the versioned blob encoder/decoder and the v3→v4 migration live there.
+3. **`src/main.cpp` is now orchestration only** (~250 lines): `setup()`, `loop()`, `renderStrip()`, `handleButtons()`.
 
-### Priority 2 — Mode 2 Design & Implementation
-- `StripSettings::mode` is already persisted in NVS and sent in JSON (`kBlob = 0`).
-- When the user specifies Mode 2's visual behaviour, implement it as a peer engine
-  rendering into `LedStrip`'s linear buffer (`buf_`).
+### Priority 2 — Multi-layer strips ("virtual strips" inside one physical strip)
+The user's insight (2026-11-07): **the object that glows is not the physical strip.**
+A physical strip is a *container*; several independent light objects ("layers" /
+"virtual strips") should live inside it, each with its own frequency band, trigger
+input, colour, speed, and intensity weight. They all accumulate into the same
+linear frame buffer, so overlapping beams blend additively and gamma is applied
+once at the output edge — the exact reason `LedStrip::buf_` is linear float.
+
+Planned shape:
+- `PhysicalStrip` (was `LedStrip`): GPIO/RMT channel, `ledCount`, linear `buf_`, one `show()`.
+- `LightLayer`: its own `StripSettings`-like config + `BlobEngine` + `BeatDetector`, with an `intensityPct` weight.
+- `PhysicalStrip::render(layers, n)`: loop layers → `engine.render(strip)` → single `show()`.
+- Persistence: per-physical-strip layer count + a fixed `kMaxLayersPerStrip` array in the blob (bump to v5).
+- GUI: the strip tab gains an "Layers" section — add/remove up to N layers, each with its own sub-panel.
 
 ### Priority 3 — Future Architecture Explorations (Documented in `docs/JOURNAL.md`)
 - **Multi-controller phone app / UDP or BLE control**: having multiple M5Sticks act

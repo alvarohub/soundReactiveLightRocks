@@ -26,6 +26,8 @@ public:
   void clear();
   void addRing(float centerPos, float halfWidth, float amp, uint8_t r, uint8_t g,
                uint8_t b, bool loop = true);
+  void addFill(float amp, uint8_t r, uint8_t g, uint8_t b);
+  void addSparkles(float amp, uint32_t seed, uint8_t r, uint8_t g, uint8_t b);
   void show(uint8_t brightnessPct = 100);
 
   // Calibration mode: blacks out the entire strip and lights only LED

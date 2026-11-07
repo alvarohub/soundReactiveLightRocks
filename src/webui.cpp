@@ -18,8 +18,27 @@ const char kPage[] PROGMEM = R"PAGE(<!doctype html>
 *{box-sizing:border-box}
 /* Right 1/6 of the viewport (16.7vw) is kept empty as a safe thumb-scroll gutter. */
 body{margin:0;padding:14px 16.7vw 28px 12px;max-width:640px;background:#0f1115;color:#e6edf3;font:16px/1.45 system-ui,-apple-system,sans-serif;border-right:1px dashed #21262e}
-h1{margin:0 0 12px;font-size:1.15rem;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+h1{margin:0 0 10px;font-size:1.15rem;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 h1 span{font-size:.72rem;color:#8b949e;font-weight:400}
+.padopen{width:100%;padding:12px 14px;margin-bottom:10px;border-radius:12px;border:2px solid #58a6ff;background:linear-gradient(135deg,#16233a,#171b21);color:#f0f6fc;font-size:1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:pointer;touch-action:manipulation}
+.padopen small{font-weight:500;font-size:.76rem;color:#8b949e}
+#padscreen{position:fixed;inset:0;z-index:100;background:#0b0e13;display:none;flex-direction:column;padding:8px 10px 10px;gap:8px;user-select:none;-webkit-user-select:none;touch-action:none}
+#padscreen.open{display:flex}
+.padtop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:none}
+.padtop b{font-size:.98rem;color:#f0f6fc}
+.padclose{padding:7px 14px;border-radius:9px;border:1px solid #3a424d;background:#21262e;color:#e6edf3;font-size:.86rem;font-weight:600;cursor:pointer}
+.pgrp{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:14px;border:2px solid var(--c,#58a6ff);background:#141820;padding:7px 9px;gap:6px;box-shadow:inset 0 0 22px rgba(0,0,0,.6)}
+.pghdr{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.84rem;flex:none}
+.pghdr b{color:#f0f6fc;display:flex;align-items:center;gap:6px}
+.pdot{width:11px;height:11px;border-radius:50%;background:var(--c,#58a6ff);display:inline-block;box-shadow:0 0 8px var(--c,#58a6ff)}
+.pghdr span{color:#8b949e;font-size:.76rem;font-variant-numeric:tabular-nums}
+.pgbar{height:5px;border-radius:3px;background:#21262e;overflow:hidden;flex:none}
+.pgbar i{display:block;height:100%;width:0;background:var(--c,#58a6ff);transition:width 60ms linear}
+.pgrid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px}
+.pad{position:relative;border-radius:12px;border:2px solid var(--c,#58a6ff);background:radial-gradient(circle at 38% 32%,rgba(255,255,255,.13),rgba(15,17,21,.93) 72%);color:#f0f6fc;font-weight:700;font-size:1.02rem;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;box-shadow:0 0 14px -5px var(--c,#58a6ff),inset 0 0 16px rgba(0,0,0,.75);transition:transform 55ms ease,box-shadow 80ms ease,background 80ms ease}
+.pad small{font-size:.66rem;font-weight:500;color:#9da7b3;margin-top:2px;letter-spacing:.02em}
+.pad.hit{transform:scale(.95);background:radial-gradient(circle at 50% 50%,#fff 0%,var(--c,#58a6ff) 58%,#141820 100%);box-shadow:0 0 26px 3px var(--c,#58a6ff),inset 0 0 12px #fff;color:#0b0e13}
+.pad.hit small{color:#0b0e13}
 .card{background:#171b21;border:1px solid #262c36;border-radius:12px;padding:12px 14px;margin-bottom:10px}
 .row{display:flex;justify-content:space-between;align-items:baseline;margin:9px 0 2px;font-size:.9rem;color:#9da7b3}
 .row.first{margin-top:0}
@@ -73,6 +92,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 </head>
 <body>
 <h1>Light Rocks <span id=host></span></h1>
+<button type=button class=padopen id=openpads><span>Full-Screen Effect Pads</span><small>Strip 1 &amp; Strip 2 live play &rarr;</small></button>
+<div id=padscreen>
+ <div class=padtop>
+  <b>Live Effect Pads</b>
+  <button type=button class=padclose id=closepads>&times; Back to Controls</button>
+ </div>
+ <div id=padgroups style="flex:1;min-height:0;display:flex;flex-direction:column;gap:8px"></div>
+</div>
 
 <div class=card>
 <div class=ptitle style="border-left-color:#3fb950">Microphone (global)<small>shared input for both strips</small></div>
@@ -117,11 +144,14 @@ var TRIGSPEC=[
 {k:'centerHz',n:'Band centre',min:65,max:7600,st:5,u:' Hz'},
 {k:'widthHz',n:'Band width',min:40,max:16000,st:10,u:' Hz'}
 ];
+var BEATSPEC=[
+{k:'beatSensitivityPct',n:'Beat sensitivity',min:0,max:100,st:1,u:'%'}
+];
 var DISPSPEC=[
 {k:'brightnessPct',n:'Max brightness',min:1,max:100,st:1,u:'%'}
 ];
 var ANIMSPEC=[
-{k:'blobLeds',n:'Blob length',min:1,max:1000,st:1,u:' LEDs'},
+{k:'blobLeds',n:'Blob / Jet length',min:1,max:1000,st:1,u:' LEDs'},
 {k:'speed',n:'Speed',min:1,max:500,st:1,u:' LEDs/s'},
 {k:'fadeMs',n:'Fade time',min:50,max:10000,st:50,u:' ms'},
 {k:'retriggerMs',n:'Retrigger gap',min:0,max:2000,st:10,u:' ms'}
@@ -129,10 +159,16 @@ var ANIMSPEC=[
 var CALSPEC=[
 {k:'ledCount',n:'LEDs on this strip',min:1,max:1000,st:1,u:''}
 ];
-var ALLSPEC=TRIGSPEC.concat(DISPSPEC).concat(ANIMSPEC).concat(CALSPEC);
-var SEL=0,ST=null,BUILT=false,SEEDED=false,PEND={},PTMR=0,REV=0,LOOP=1,RETRIG=1,CALIB=0;
+var ALLSPEC=TRIGSPEC.concat(BEATSPEC).concat(DISPSPEC).concat(ANIMSPEC).concat(CALSPEC);
+var PADEFFS=[
+{e:1,n:'FLASH',d:'Full strip · hold to sustain'},
+{e:0,n:'JET',d:'Shooting blob · hold to stream'},
+{e:2,n:'BURST',d:'Center shockwave split'},
+{e:3,n:'SPARKLE',d:'Glitter shower · hold'}
+];
+var SEL=0,ST=null,BUILT=false,SEEDED=false,PEND={},PTMR=0,MODE=0,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0;
 var CUR_COL='#ff6a00',WHEEL_BG=null,WX=76,WY=76,WDRAG=false,TDRAG=-1,MSGTMR=0;
-var INFLIGHT=false,POLL_BUSY=false;
+var INFLIGHT=false,POLL_BUSY=false,HOLD_TMRS={};
 
 function $(i){return document.getElementById(i);}
 function colOf(s){return '#'+s.color;}
@@ -195,12 +231,39 @@ function pickThr(idx,e,commit){
  refreshTitle();
 }
 
+function padHit(sIdx,eff,down){
+ var id='pad_'+sIdx+'_'+eff,el=$(id),key=sIdx+'_'+eff;
+ if(down){
+  if(el)el.classList.add('hit');
+  fetch('/api/tap?strip='+sIdx+'&effect='+eff+'&down=1',{method:'POST'}).catch(function(){});
+  if(HOLD_TMRS[key])clearInterval(HOLD_TMRS[key]);
+  HOLD_TMRS[key]=setInterval(function(){
+   fetch('/api/tap?strip='+sIdx+'&effect='+eff+'&down=1',{method:'POST'}).catch(function(){});
+  },900);
+ }else{
+  if(HOLD_TMRS[key]){clearInterval(HOLD_TMRS[key]);HOLD_TMRS[key]=0;}
+  if(el&&el.classList.contains('hit')){
+   el.classList.remove('hit');
+   fetch('/api/tap?strip='+sIdx+'&effect='+eff+'&down=0',{method:'POST'}).catch(function(){});
+  }
+ }
+}
+
 function buildMeters(n){
- var p='';
+ var p='',pg='';
  for(var i=0;i<n;i++){
   p+='<button id=sel'+i+'>Strip '+(i+1)+'</button>';
+  pg+='<div class=pgrp id=pgrp'+i+'>'
+   +'<div class=pghdr><b><i class=pdot id=pdot'+i+'></i>Strip '+(i+1)+'</b><span id=pgst'+i+'>-</span></div>'
+   +'<div class=pgbar><i id=pgb'+i+'></i></div>'
+   +'<div class=pgrid>';
+  PADEFFS.forEach(function(pe){
+   pg+='<button type=button class=pad id=pad_'+i+'_'+pe.e+'><span>'+pe.n+'</span><small>'+pe.d+'</small></button>';
+  });
+  pg+='</div></div>';
  }
  $('pick').innerHTML=p;
+ $('padgroups').innerHTML=pg;
  for(var j=0;j<n;j++){
   (function(k){
    $('sel'+k).onclick=function(){
@@ -210,8 +273,22 @@ function buildMeters(n){
     fillInputs();
     live();
    };
+   PADEFFS.forEach(function(pe){
+    var btn=$('pad_'+k+'_'+pe.e);
+    btn.addEventListener('pointerdown',function(e){
+     e.preventDefault();
+     if(btn.setPointerCapture){try{btn.setPointerCapture(e.pointerId);}catch(_){}}
+     padHit(k,pe.e,true);
+    });
+    btn.addEventListener('pointerup',function(){padHit(k,pe.e,false);});
+    btn.addEventListener('pointercancel',function(){padHit(k,pe.e,false);});
+    btn.addEventListener('lostpointercapture',function(){padHit(k,pe.e,false);});
+    btn.addEventListener('contextmenu',function(e){e.preventDefault();});
+   });
   })(j);
  }
+ $('openpads').onclick=function(){$('padscreen').classList.add('open');};
+ $('closepads').onclick=function(){$('padscreen').classList.remove('open');};
 }
 
 function initWheel(){
@@ -274,31 +351,50 @@ function pickWheel(e,commit){
 
 function build(){
  var tbox=$('trigbox');
- tbox.innerHTML='<div class=ptitle id=ttitle>Triggering conditions<small>drag white mark on bar to set threshold</small></div>'
-  +'<div class=row><span>Band level &amp; threshold</span><b id=mt0>0%</b></div>'
-  +'<div class=bar id=bar0><i id=mb0></i><u id=mu0></u></div>';
+ tbox.innerHTML='<div class=ptitle id=ttitle>Triggering conditions<small id=thint>choose how this strip is activated</small></div>'
+  +'<div class=row><span>Trigger input</span><b></b></div>'
+  +'<div class=seg><button id=m0>Threshold</button><button id=m1>Auto Beat</button><button id=m2>Manual (Pads)</button></div>'
+  +'<div id=trig_lvl>'
+  +'<div class=row><span id=mtlbl>Band level &amp; threshold</span><b id=mt0>0%</b></div>'
+  +'<div class=bar id=bar0><i id=mb0></i><u id=mu0></u></div>'
+  +'</div>'
+  +'<div id=trig_beat style="display:none"></div>'
+  +'<div id=trig_freq></div>';
  var bar=$('bar0');
  bar.addEventListener('pointerdown',function(e){
+  if(MODE!==0)return;
   e.preventDefault();
   TDRAG=SEL;
   if(bar.setPointerCapture){try{bar.setPointerCapture(e.pointerId);}catch(_){}}
   pickThr(SEL,e,false);
  });
  bar.addEventListener('pointermove',function(e){
-  if(TDRAG<0)return;
+  if(TDRAG<0||MODE!==0)return;
   e.preventDefault();
   pickThr(SEL,e,false);
  });
  function endThr(e){if(TDRAG<0)return;TDRAG=-1;pickThr(SEL,e,true);}
  bar.addEventListener('pointerup',endThr);
  bar.addEventListener('pointercancel',function(){TDRAG=-1;flush();});
- TRIGSPEC.forEach(function(s){
-  tbox.insertAdjacentHTML('beforeend',
+ var bbox=$('trig_beat');
+ BEATSPEC.forEach(function(s){
+  bbox.insertAdjacentHTML('beforeend',
    '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
    +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
   var el=$(s.k);
   el.addEventListener('input',function(){labels();send(s.k,el.value,false);});
  });
+ var fbox=$('trig_freq');
+ TRIGSPEC.forEach(function(s){
+  fbox.insertAdjacentHTML('beforeend',
+   '<div class=row><span>'+s.n+'</span><b id="'+s.k+'v">-</b></div>'
+   +'<input type=range id="'+s.k+'" min='+s.min+' max='+s.max+' step='+s.st+'>');
+  var el=$(s.k);
+  el.addEventListener('input',function(){labels();send(s.k,el.value,false);});
+ });
+ $('m0').onclick=function(){MODE=0;setMode();refreshTitle();send('mode',0,true);};
+ $('m1').onclick=function(){MODE=1;setMode();refreshTitle();send('mode',1,true);};
+ $('m2').onclick=function(){MODE=2;setMode();refreshTitle();send('mode',2,true);};
 
  var dbox=$('dispbox');
  dbox.innerHTML='<div class=ptitle id=dtitle>Display parameters<small>colour &amp; max brightness</small></div>'
@@ -329,11 +425,17 @@ function build(){
  });
 
  var abox=$('animbox');
- abox.innerHTML='<div class=ptitle id=atitle>Animation parameters<small>trajectory, speed, fade &amp; retrigger</small></div>'
+ abox.innerHTML='<div class=ptitle id=atitle>Animation parameters<small>effect, trajectory, speed, fade &amp; retrigger</small></div>'
+  +'<div class=row><span>Triggered effect</span><b></b></div>'
+  +'<div class=seg><button id=ef0>Jet</button><button id=ef1>Flash</button><button id=ef2>Burst</button><button id=ef3>Sparkle</button></div>'
   +'<div class=row><span>Motion</span><b></b></div>'
   +'<div class=seg><button id=lp1>Loop (ring)</button><button id=lp0>One-shot</button></div>'
   +'<div class=row><span>Direction</span><b></b></div>'
   +'<div class=seg><button id=d0>Forward</button><button id=d1>Reverse</button><button id=d2>Ping-pong</button></div>';
+ $('ef0').onclick=function(){EFF=0;setEff();refreshTitle();send('effect',0,true);};
+ $('ef1').onclick=function(){EFF=1;setEff();refreshTitle();send('effect',1,true);};
+ $('ef2').onclick=function(){EFF=2;setEff();refreshTitle();send('effect',2,true);};
+ $('ef3').onclick=function(){EFF=3;setEff();refreshTitle();send('effect',3,true);};
  ANIMSPEC.forEach(function(s){
   if(s.k==='retriggerMs'){
    abox.insertAdjacentHTML('beforeend',
@@ -391,6 +493,8 @@ function build(){
 }
 
 function dirName(r){return r===2?'ping-pong':(r===1?'reverse':'forward');}
+function modeName(m){return m===2?'manual pads':(m===1?'auto beat':'threshold');}
+function effName(e){return e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet'));}
 
 function refreshTitle(){
  var on=$('pwr').checked;
@@ -400,9 +504,10 @@ function refreshTitle(){
   if($(id))$(id).style.borderLeftColor=c;
  });
  $('colv').textContent=c;
+ var trigTxt=MODE===2?'manual pads':(MODE===1?('beat '+$('beatSensitivityPct').value+'% sens'):(thr+'% thr'));
  $('ptitle').innerHTML=nameOf(SEL)+'<small>'+(on?'powered on':'powered off')
-  +' &middot; '+(LOOP?'loop':'one-shot')+' '+dirName(REV)
-  +' &middot; '+thr+'% thr'
+  +' &middot; '+trigTxt
+  +' &middot; '+effName(EFF)
   +' &middot; '+$('speed').value+' LED/s'
   +' &middot; fade '+$('fadeMs').value+' ms</small>';
 }
@@ -412,7 +517,7 @@ function labels(){
   if(p.k==='centerHz'||p.k==='widthHz'||p.k==='retriggerMs')return;
   $(p.k+'v').textContent=$(p.k).value+p.u;
  });
- $('retriggerMsv').textContent=RETRIG?($('retriggerMs').value+' ms'):'no retrigger (1 blob)';
+ $('retriggerMsv').textContent=RETRIG?($('retriggerMs').value+' ms'):'no retrigger (single)';
  var c=+$('centerHz').value, w=+$('widthHz').value;
  var lo=Math.max(65,Math.round(c-w/2)), hi=Math.min(7600,Math.round(c+w/2));
  $('centerHzv').textContent=c+' Hz';
@@ -420,6 +525,27 @@ function labels(){
  refreshTitle();
 }
 
+function setMode(){
+ $('m0').className=MODE===0?'sel':'';
+ $('m1').className=MODE===1?'sel':'';
+ $('m2').className=MODE===2?'sel':'';
+ $('trig_lvl').style.display=MODE===2?'none':'';
+ $('trig_beat').style.display=MODE===1?'':'none';
+ $('trig_freq').style.display=MODE===2?'none':'';
+ $('mu0').style.display=MODE===0?'':'none';
+ $('bar0').style.cursor=MODE===0?'ew-resize':'default';
+ if($('mtlbl'))$('mtlbl').textContent=MODE===1?'Beat pulse & detected tempo':'Band level & threshold';
+ if($('thint')){
+  $('thint').textContent=MODE===0
+   ?'drag white mark on bar to set level threshold'
+   :(MODE===1
+     ?'adaptive onset detector inside the frequency window below'
+     :'microphone ignored on this strip — play live from Full-Screen Effect Pads');
+ }
+}
+function setEff(){
+ for(var i=0;i<4;i++)if($('ef'+i))$('ef'+i).className=EFF===i?'sel':'';
+}
 function setDir(){
  $('d0').className=REV===0?'sel':'';
  $('d1').className=REV===1?'sel':'';
@@ -445,13 +571,17 @@ function setCalib(){
 function fillInputs(){
  if(!ST||!BUILT)return;
  var s=ST.strips[SEL];
- ALLSPEC.forEach(function(p){$(p.k).value=s[p.k];});
+ ALLSPEC.forEach(function(p){if(s[p.k]!==undefined)$(p.k).value=s[p.k];});
  $('pwr').checked=!!s.enabled;
  $('gainDb').value=ST.gainDb;
+ MODE=s.mode||0;
+ EFF=s.effect||0;
  REV=s.reverse||0;
  LOOP=s.loop?1:0;
  RETRIG=s.retrigger!==undefined?(s.retrigger?1:0):1;
  CALIB=s.calib?1:0;
+ setMode();
+ setEff();
  setDir();
  setLoop();
  setRetrig();
@@ -469,18 +599,34 @@ function flashMsg(t){
 function live(){
  if(!ST)return;
  for(var i=0;i<ST.strips.length;i++){
-  var si=ST.strips[i];
+  var si=ST.strips[i],ci=colOf(si);
   $('sel'+i).className=(SEL===i?'sel ':'')+(si.enabled?'on':'off');
+  var pg=$('pgrp'+i);
+  if(pg){
+   pg.style.setProperty('--c',ci);
+   var stTxt=!si.enabled?'powered off':(si.mode===1?('Beat · '+(si.bpm>0?(si.bpm+' BPM'):'listening')):(si.mode===2?'Manual Pads':('Thr '+si.thresholdPct+'% · lvl '+si.levelPct+'%')));
+   $('pgst'+i).textContent=stTxt+' · out '+si.brightPct+'%';
+   $('pgb'+i).style.width=si.brightPct+'%';
+  }
  }
  var s=ST.strips[SEL];
  if(s&&BUILT){
   var c=colOf(s);
-  $('mb0').style.width=s.levelPct+'%';
-  $('mb0').style.background=c;
-  $('mu0').style.left='calc('+s.thresholdPct+'% - 2px)';
-  $('mt0').textContent=s.enabled
-   ?('thr '+s.thresholdPct+'% · lvl '+s.levelPct+'% · '+s.blobs+' blob'+(s.blobs===1?'':'s'))
-   :'switched off';
+  if(s.mode===1){
+   var bp=Math.max(s.beatPct||0,s.levelPct||0);
+   $('mb0').style.width=bp+'%';
+   $('mb0').style.background=c;
+   $('mt0').textContent=s.enabled
+    ?((s.bpm>0?(s.bpm+' BPM'):'listening…')+' · beat '+(s.beatPct||0)+'% · lvl '+s.levelPct+'%')
+    :'switched off';
+  }else{
+   $('mb0').style.width=s.levelPct+'%';
+   $('mb0').style.background=c;
+   $('mu0').style.left='calc('+s.thresholdPct+'% - 2px)';
+   $('mt0').textContent=s.enabled
+    ?('thr '+s.thresholdPct+'% · lvl '+s.levelPct+'% · '+s.blobs+' active')
+    :'switched off';
+  }
   CALIB=s.calib?1:0;
   setCalib();
  }
@@ -613,6 +759,7 @@ void WebUi::bindRoutes() {
   server_.on("/favicon.ico", [this] { server_.send(204, "text/plain", ""); });
   server_.on("/api/state", [this] { handleState(); });
   server_.on("/api/params", HTTP_POST, [this] { handleParams(); });
+  server_.on("/api/tap", HTTP_POST, [this] { handleTap(); });
   server_.on("/api/preset", HTTP_POST, [this] { handlePreset(); });
   server_.on("/api/reset", HTTP_POST, [this] { handleReset(); });
   server_.onNotFound([this] { server_.send(204, "text/plain", ""); });
@@ -636,20 +783,23 @@ String WebUi::stateJson() const {
   for (size_t i = 0; i < kStripCount; i++) {
     const StripSettings &s = settings_->strip[i];
     appendf(buf, sizeof(buf), n,
-            "%s{\"mode\":%u,\"enabled\":%u,\"brightnessPct\":%u,\"ledCount\":%u,"
-            "\"centerHz\":%u,\"widthHz\":%u,\"thresholdPct\":%u,\"retrigger\":%u,"
-            "\"retriggerMs\":%u,\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,"
-            "\"reverse\":%u,\"loop\":%u,\"color\":\"%02x%02x%02x\","
-            "\"levelPct\":%u,\"brightPct\":%u,\"blobs\":%u,\"calib\":%u}",
-            i == 0 ? "" : ",", (unsigned)s.mode, (unsigned)s.enabled,
-            (unsigned)s.brightnessPct, (unsigned)s.ledCount,
-            (unsigned)s.centerHz, (unsigned)s.widthHz,
-            (unsigned)s.thresholdPct, (unsigned)s.retrigger,
-            (unsigned)s.retriggerMs, (unsigned)s.blobLeds, (unsigned)s.speed,
-            (unsigned)s.fadeMs, (unsigned)s.reverse, (unsigned)s.loop,
-            (unsigned)s.r, (unsigned)s.g, (unsigned)s.b,
-            (unsigned)tele_.strip[i].levelPct,
+            "%s{\"mode\":%u,\"effect\":%u,\"enabled\":%u,\"brightnessPct\":%u,"
+            "\"ledCount\":%u,\"centerHz\":%u,\"widthHz\":%u,\"thresholdPct\":%u,"
+            "\"beatSensitivityPct\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
+            "\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,\"reverse\":%u,"
+            "\"loop\":%u,\"color\":\"%02x%02x%02x\",\"levelPct\":%u,"
+            "\"brightPct\":%u,\"blobs\":%u,\"beatPct\":%u,\"bpm\":%u,"
+            "\"calib\":%u}",
+            i == 0 ? "" : ",", (unsigned)s.mode, (unsigned)s.effect,
+            (unsigned)s.enabled, (unsigned)s.brightnessPct,
+            (unsigned)s.ledCount, (unsigned)s.centerHz, (unsigned)s.widthHz,
+            (unsigned)s.thresholdPct, (unsigned)s.beatSensitivityPct,
+            (unsigned)s.retrigger, (unsigned)s.retriggerMs,
+            (unsigned)s.blobLeds, (unsigned)s.speed, (unsigned)s.fadeMs,
+            (unsigned)s.reverse, (unsigned)s.loop, (unsigned)s.r,
+            (unsigned)s.g, (unsigned)s.b, (unsigned)tele_.strip[i].levelPct,
             (unsigned)tele_.strip[i].brightPct, (unsigned)tele_.strip[i].blobs,
+            (unsigned)tele_.strip[i].beatPct, (unsigned)tele_.strip[i].bpm,
             isCalibrating(i, nowMs) ? 1u : 0u);
   }
 
@@ -694,12 +844,14 @@ void WebUi::handleParams() {
   if (index >= 0 && index < (int)kStripCount) {
     StripSettings &s = settings_->strip[index];
     applyArg("mode", &s.mode);
+    applyArg("effect", &s.effect);
     applyArg("enabled", &s.enabled);
     applyArg("brightnessPct", &s.brightnessPct);
     applyArg("ledCount", &s.ledCount);
     applyArg("centerHz", &s.centerHz);
     applyArg("widthHz", &s.widthHz);
     applyArg("thresholdPct", &s.thresholdPct);
+    applyArg("beatSensitivityPct", &s.beatSensitivityPct);
     applyArg("retrigger", &s.retrigger);
     applyArg("retriggerMs", &s.retriggerMs);
     applyArg("blobLeds", &s.blobLeds);
@@ -743,6 +895,35 @@ void WebUi::handleParams() {
 
   // Lightweight 204 reply: avoids heap String allocation and 650-byte JSON
   // responses on every 50 ms slider / colour-wheel drag tick.
+  server_.send(204, "text/plain", "");
+}
+
+void WebUi::handleTap() {
+  const int index = server_.hasArg("strip") ? server_.arg("strip").toInt() : -1;
+  if (index >= 0 && index < (int)kStripCount) {
+    const uint8_t eff = clampU8(
+        server_.hasArg("effect") ? server_.arg("effect").toInt() : 0,
+        StripSettings::kEffectJet, StripSettings::kEffectSparkle);
+    const bool down =
+        !server_.hasArg("down") || server_.arg("down").toInt() != 0;
+
+    calibPinned_[index] = false;
+    calibUntilMs_[index] = 0;
+
+    if (down) {
+      if (!padDown_[index] || holdEffect_[index] != eff) {
+        tapPending_[index] = true;
+        tapEffect_[index] = eff;
+      }
+      padDown_[index] = true;
+      holdState_[index] = 1;
+      holdEffect_[index] = eff;
+    } else {
+      padDown_[index] = false;
+      holdState_[index] = 0;
+      holdEffect_[index] = eff;
+    }
+  }
   server_.send(204, "text/plain", "");
 }
 

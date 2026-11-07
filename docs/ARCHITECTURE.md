@@ -35,7 +35,9 @@ code never has to worry about two things touching the pixel buffer at once.
                         ┌───────────────────────────────┐
                         │  BlobEngine   (one per strip) │
                         │  blob_mode.cpp                │
-                        │  owns: trigger timing, blobs[12]
+                        │  owns: effect pool, flash/    │
+                        │  sparkle envelopes, trigger   │
+                        │  input (threshold / beat)     │
                         └───────────────┬───────────────┘
                                         │  addRing(pos, halfWidth, amp, r, g, b)
                                         │  → adds *linear* intensity into a frame
@@ -84,7 +86,7 @@ the light engines. Nobody else keeps a copy of "what the user chose".
    - `engine.update(level, nowMs, dtSec, s)` — move/age blobs, spawn if due;
    - `strip.clear()` → `engine.render(strip, s)` → `strip.show()`.
 7. **`web.setTelemetry(tele)`** — one struct of numbers the page can read.
-8. **Draw the screen** — spectrum bars, band windows, level meters, HUD. All of it
+8. **Draw the screen** (`Display::renderFrame`) — spectrum bars, band windows, level meters, HUD. All of it
    incremental: only what changed is repainted.
 9. Every 2 s, one line to the serial port.
 
@@ -212,12 +214,15 @@ or in ESP-DSP. If that is not worth 35 lines and one extra env, delete the
 
 | You want to… | Touch |
 |--------------|-------|
-| add a parameter | `settings.h` (field + clamp + default) → `settings_blob.cpp` (bytes, bump version) → `webui.cpp` (SPEC array + a line in `handleParams`) → SPEC.md table |
-| add mode 2 | new engine class next to `blob_mode.*` → add to `StripSettings::Mode` → `main.cpp` picks the engine by `s.mode` → tab in `webui.cpp` |
+| add a parameter | `settings.h` (field + clamp + default) → `settings.cpp` (bytes, bump version) → `webui.cpp` (SPEC array + a line in `handleParams`) → SPEC.md table |
+| add an effect | `StripSettings::Effect` in `settings.h` → `BlobEngine::triggerEffect()` + `render()` in `blob_mode.cpp` → pad list `PADEFFS` in `webui.cpp` |
+| add a trigger input | `StripSettings::Mode` → the `shouldTrigger` block at the end of `BlobEngine::update()` → mode buttons in `webui.cpp` |
+| change beat behaviour | `beat.cpp` (threshold, refractory, tempo range) or `SpectrumAnalyzer::bandFlux()` for the onset function |
 | move a strip to another pin | `kStripPins` in `config.h` |
 | change the LED ceiling | `kMaxLedsPerStrip` in `config.h` (buffers are sized from it) |
-| change the look of the blob | `addRing()` in `strip.cpp` (shape) or `update()` in `blob_mode.cpp` (motion/life) |
-| change the trigger rule | `BlobEngine::update()` — it is the four lines after the blob loop |
+| change the look of an effect | `addRing()` / `addFill()` / `addSparkles()` in `strip.cpp` (shape) or `update()` in `blob_mode.cpp` (motion/life) |
+| change the LCD layout | `display.cpp` (`computeLayout()`, `draw*`) |
+| support several light layers per strip | `HANDOFF.md` Priority 2 — engine per layer, one `show()` per physical strip |
 
 ---
 

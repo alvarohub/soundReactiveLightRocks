@@ -40,8 +40,10 @@ public:
   int bandFromHz(float hz) const;
 
   // Spectral flux of the last frame: the summed positive change of the
-  // spectrum. This is the onset function the beat detector works from.
+  // spectrum. bandFlux() restricts this to center +/- width/2 Hz and normalises
+  // for window width and mic gain so each strip can run its own beat detector.
   float flux() const { return flux_; }
+  float bandFlux(float centerHz, float widthHz) const;
 
 private:
   void computeBandEdges();
@@ -50,6 +52,7 @@ private:
   float im_[kSamples] = {};
   float mag_[kBins] = {};
   float prevMag_[kBins] = {};
+  float rise_[kBins] = {};
   int16_t pcm_[kSamples] = {};
 
   float band_[kBands] = {};

@@ -52,6 +52,7 @@ bool SpectrumAnalyzer::begin(uint32_t sampleRateHz) {
   }
   for (size_t i = 0; i < kBins; i++) {
     prevMag_[i] = 0.0f;
+    rise_[i] = 0.0f;
   }
   flux_ = 0.0f;
   level_ = 0.0f;
@@ -117,7 +118,10 @@ bool SpectrumAnalyzer::update() {
   for (size_t i = 1; i < kBins; i++) {
     const float rise = mag_[i] - prevMag_[i];
     if (rise > 0.0f) {
+      rise_[i] = rise;
       flux += rise;
+    } else {
+      rise_[i] = 0.0f;
     }
     prevMag_[i] = mag_[i];
   }
@@ -209,6 +213,43 @@ float SpectrumAnalyzer::bandLevel(float centerHz, float widthHz) const {
   const float rms = sqrtf(sum / fftb::bandPowerNorm());
   const float db = 20.0f * log10f(rms + 1e-9f) + (float)gainDb_;
   return clamp01((db - kLevelFloorDb) / (kLevelFullDb - kLevelFloorDb));
+}
+
+float SpectrumAnalyzer::bandFlux(float centerHz, float widthHz) const {
+  if (!ready_ || sampleRate_ == 0) {
+    return 0.0f;
+  }
+
+  float lo = centerHz - widthHz * 0.5f;
+  float hi = centerHz + widthHz * 0.5f;
+  if (lo < kAudioMinHz) {
+    lo = kAudioMinHz;
+  }
+  if (hi > kAudioMaxHz) {
+    hi = kAudioMaxHz;
+  }
+
+  const float binHz = (float)sampleRate_ / (float)kSamples;
+  int first = (int)lroundf(lo / binHz);
+  int last = (int)lroundf(hi / binHz);
+  if (first < 1) {
+    first = 1;
+  }
+  if (last > (int)kBins - 1) {
+    last = (int)kBins - 1;
+  }
+  if (last < first) {
+    last = first;
+  }
+
+  float sum = 0.0f;
+  for (int i = first; i <= last; i++) {
+    sum += rise_[i];
+  }
+  const int count = last - first + 1;
+  const float gainLin = powf(10.0f, (float)gainDb_ / 20.0f);
+  const float widthNorm = sqrtf((float)(kBins - 1) / (float)count);
+  return sum * gainLin * widthNorm;
 }
 
 int SpectrumAnalyzer::bandFromHz(float hz) const {

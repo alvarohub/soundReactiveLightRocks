@@ -266,23 +266,78 @@ The name "Light Rocks" itself turned out to be correct, so it stays.
 
 ---
 
+## 2026-11-07 — Pad effects, per-strip beat detection, and the modularisation pass
+
+### Requested
+
+1. **Fingertip pads** to trigger effects from the web GUI, like the sister project,
+   but more interesting than a single colour: at least a colour flash, plus light
+   jets and other effects.
+2. **Proper beat detection mode**, again inspired by `Katya_Kim/LightSoundReactive`.
+3. The user's key clarification: **each strip must be controlled independently**,
+   and **beat detection is an *input*, not a mode** — a strip is activated either by
+   the automatic beat input or by the level threshold.
+4. The pad view should be a **full screen**, divided in two groups, one per strip.
+5. Also finish the `HANDOFF.md` Priority 1 cleanup while touching everything.
+
+### Decisions
+
+| Decision | Why |
+|----------|-----|
+| `mode` becomes the **trigger input** (`kThreshold` / `kBeat` / `kManual`) | Exactly what was asked: threshold and beat are alternative ways to fire the same effect pipeline. `kManual` keeps the "silent until tapped" behaviour of the sister project. |
+| New `effect` field (`kEffectJet` / `kEffectFlash` / `kEffectBurst` / `kEffectSparkle`) | Separates *what is drawn* from *what fires it*, so any input can drive any effect. |
+| **One `BeatDetector` per strip**, fed by `bandFlux(centerHz, widthHz)` | Gives real independence: the bass rock can lock to 124 BPM while the mid rock follows a different rhythm. A single broadband detector could not do that. |
+| `bandFlux()` normalises by band width and mic gain | A narrow window otherwise reads a much smaller flux than a wide one, so sensitivity meant something different per strip. |
+| Flash and Sparkle are **envelope-only** effects (no position) | They reuse `addFill()` / `addSparkles()` on the same linear buffer, so overlapping with jets still adds correctly. |
+| Pad **hold** semantics: sustain Flash/Sparkle, re-fire Jet at `retriggerMs` | Holding a "flash" should keep the light on, while holding a "jet" should stream jets; a 2.5 s keepalive timeout releases the pad if the browser dies. |
+| `Display`, `settings.cpp`, `beat.*` extracted | Completes the Priority 1 cleanup; `main.cpp` is now orchestration only. |
+| Blob version bumped to **v4 (26 bytes/strip)** with a **v3 migration path** | Existing hardware keeps its tuned presets instead of silently reverting to defaults. |
+
+### Done
+
+- [x] `src/settings.h` / `src/settings.cpp`: merged `settings_blob.*` + `store.*`; added `mode`, `effect`, `beatSensitivityPct`; v4 blob + v3 migration.
+- [x] `src/beat.h` / `src/beat.cpp`: per-strip onset + tempo detector (ported and adapted).
+- [x] `src/audio_fft.*`: `rise_[]` buffer + `bandFlux(center, width)`.
+- [x] `src/strip.*`: `addFill()` (flash) and `addSparkles()` (deterministic per-LED hash shower).
+- [x] `src/blob_mode.*`: effect pool + flash/sparkle envelopes + burst spawn + pad hold + trigger-input evaluation.
+- [x] `src/display.h` / `src/display.cpp`: full LCD renderer, meter labels showing `S`/`B`/`M`.
+- [x] `src/webui.*`: trigger-input selector, effect selector, beat sensitivity, `/api/tap`, full-screen pad overlay.
+- [x] `src/main.cpp`: orchestration only.
+- [x] Docs: SPEC, HANDOFF, this entry.
+
+### Verified
+
+- `pio run` (m5sticks3) and `pio run -e m5stick-c-plus2`: **both SUCCESS**, zero
+  warnings in project sources. RAM 28 %, Flash 32 % on S3.
+- Embedded page extracted and `node --check`ed: **JS syntax valid**, HTML tags balanced.
+- Page exercised against a mock API in Chromium: all cards render, strip title and
+  trigger hints update on mode switch, the full-screen pad view shows two colour-coded
+  groups of four pads with live status, and tapping a pad issues
+  `POST /api/tap?strip=0&effect=0&down=1` followed by `down=0`.
+- Fixed a real bug found this way: `&amp;` inside `textContent` rendered literally.
+
+### Open / next
+
+- Not yet run on hardware: confirm beat lock on real music, and that Flash/Sparkle
+  hold feels right on the rocks.
+- **Next architectural step (user request)**: physical strips become containers for
+  multiple *light layers* ("virtual strips"), each with its own band, trigger input,
+  colour and intensity weight, all accumulating into one linear buffer. See
+  `HANDOFF.md` Priority 2 for the planned shape.
+
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:
   - Verify NeoPixel colour byte order (`GRB` vs `RGB`) on the actual strips with the
     new real-time colour wheel.
   - Tune actual `ledCount` for each rock strip.
-- [ ] **Code Architecture Cleanup & Refactoring (requested by user — do after hardware check)**:
-  - **Extract display code out of `main.cpp`** into `display.h` / `display.cpp`
-    (move all layout coordinates, `rgb565`, `barColor`, `drawSpectrum`,
-    `drawStripChrome`, `drawMeters`, `drawHud`, `showBanner`, `finishBanner` out of
-    the anonymous namespace at the top of `main.cpp`).
-  - **Simplify settings & storage files**: merge the confusing split between
-    `settings.h`, `settings_blob.h/.cpp`, and `store.h/.cpp` into a clean,
-    self-contained `settings.h` / `settings.cpp` (or `storage.h/.cpp`).
-  - **Keep `main.cpp` minimal and readable**: only top-level `setup()` and `loop()`
-    orchestration.
-- [ ] **Mode 2 design & implementation** (once Mode 1 and cleanup are signed off).
+- [x] **Code Architecture Cleanup & Refactoring** — **DONE 2026-11-07**:
+  - `display.h` / `display.cpp` now own the whole LCD renderer.
+  - `settings.h` / `settings.cpp` merged `settings_blob.*` + `store.*`.
+  - `main.cpp` reduced to orchestration (`setup`, `loop`, `renderStrip`, `handleButtons`).
+- [ ] **Multi-layer strips ("virtual strips")** — physical strips become containers
+  for several independent light layers; see `HANDOFF.md` Priority 2.
 
 ---
 

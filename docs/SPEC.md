@@ -4,7 +4,7 @@
 > happens to do today. When behaviour and this file disagree, one of them is a bug.
 > Progress against this spec is tracked in [JOURNAL.md](./JOURNAL.md).
 
-Status: **v0.2 — Mode 1 (loop & one-shot blobs, presets, real-time colour wheel, M5StickS3 + M5StickC Plus2)**. Mode 2 is still a placeholder.
+Status: **v0.3 — per-strip trigger inputs (threshold / auto beat / manual pads), four effects (jet, flash, burst, sparkle), full-screen fingertip pad view, M5StickS3 + M5StickC Plus2**.
 
 ---
 
@@ -16,8 +16,10 @@ Drive two NeoPixel strips so they react to music from the room:
 * each strip can operate either as a **closed ring (Loop)** — light that leaves one
   end comes back at the other — or as a **linear strand (One-shot)** where blobs
   disappear once they travel past the last LED;
-* when the music gets loud in a chosen frequency band, a **blob of light** runs
-  along the strip and fades out.
+* when the music gets loud in a chosen frequency band, **or** a beat is detected in
+  it, a **light effect** fires along the strip and fades out;
+* the same effects can be played by hand at any time from a **full-screen fingertip
+  pad view**, one group of pads per strip.
 
 Everything is tuned from a phone: the board serves its own Wi-Fi access point and a
 small web page. Live settings are saved automatically to flash, and three preset
@@ -85,20 +87,11 @@ built-in mic ──► 512-sample frame @ 16 kHz ──► Hann window ──►
 
 ---
 
-## 4. Mode 1 — Orbiting blobs
+## 4. Motion and shape
 
-### 4.1 Trigger & Retrigger
+These rules apply to the **Jet** and **Burst** effects.
 
-* Each frame, the strip's band level is compared with its **threshold** (which is
-  adjusted directly by dragging the white marker on the strip's live level meter).
-* When `retrigger = 1` (**Retrig ON**): a blob is spawned when `level >= threshold`
-  and at least `retriggerMs` has passed since that strip's last spawn.
-* When `retrigger = 0` (**Single / No retrigger**): a new blob cannot be spawned
-  while any blob is still active on that strip (`activeCount() > 0`).
-* At most `kMaxBlobs` (12) blobs exist per strip. Beyond that the **dimmest** blob
-  is recycled, so a busy passage stays continuous instead of going silent.
-
-### 4.2 Motion (`Loop` vs. `One-shot` & `Forward` / `Reverse` / `Ping-pong`)
+### 4.1 Motion (`Loop` vs. `One-shot` & `Forward` / `Reverse` / `Ping-pong`)
 
 * A blob has a position measured in LEDs (floating point) and moves at
   `speed` LEDs per second.
@@ -117,14 +110,14 @@ built-in mic ──► 512-sample frame @ 16 kHz ──► Hann window ──►
     disappears past the far end. In Ping-pong, it completes one out-and-back
     round-trip (`0 → ledCount - 1 → 0`) and disappears past `0`.
 
-### 4.3 Shape
+### 4.2 Shape
 
 * The blob spans `blobLeds` LEDs, centred on its position.
 * Brightness follows a raised-cosine profile across that span: full at the centre,
   zero at the edges. This avoids the hard edges of a square pulse and keeps the
   motion looking smooth at any speed.
 
-### 4.4 Lifetime
+### 4.3 Lifetime
 
 * Every blob ages. Amplitude falls linearly from 1 to 0 over `fadeMs`, then the blob
   is removed (or earlier if `loop = 0` and it runs off the end of the strip).
@@ -132,7 +125,7 @@ built-in mic ──► 512-sample frame @ 16 kHz ──► Hann window ──►
   stops: distance travelled = `speed × fadeMs`.
 * Blobs are drawn **additively**.
 
-### 4.5 Colour and output
+### 4.4 Colour and output
 
 * Each strip has one colour, chosen on an inline **real-time colour wheel** (with
   a live colour swatch square) in the Web UI. Dragging on the wheel updates the
@@ -141,19 +134,70 @@ built-in mic ──► 512-sample frame @ 16 kHz ──► Hann window ──►
   independently crushing each RGB channel during fade-out, so secondary channels
   keep their exact hue ratio as the blob dims. If overlapping blobs exceed `1.0`,
   RGB channels are scaled proportionally to preserve hue.
-* Only `ledCount` LEDs are transmitted per strip — see §6.
+* Only `ledCount` LEDs are transmitted per strip — see §7.
 
 ---
 
-## 5. Mode 2 — not designed yet
+## 5. Trigger inputs and effects
 
-Reserved. Candidates discussed so far: a spectrum/vu meter running down the strip,
-or level-driven brightness with a travelling wave. Nothing is implemented; the
-`mode` field exists in the settings blob so adding it needs no storage migration.
+### 5.1 Trigger input (`mode`) — chosen independently per strip
+
+| Value | Name | Behaviour |
+|-------|------|-----------|
+| `0` | **Threshold** | The effect fires when the strip's band level reaches `thresholdPct`. |
+| `1` | **Auto beat** | The effect fires on detected beats *inside this strip's frequency window*. Each strip owns its own `BeatDetector`, fed by `bandFlux(centerHz, widthHz)`. |
+| `2` | **Manual (pads)** | The microphone is ignored; only the fingertip pads and **BtnA** fire the effect. |
+
+`thresholdPct` and the beat detector are therefore two interchangeable *inputs* to
+the same effect pipeline, not two different renderers.
+
+### 5.2 Effects (`effect`) — one chosen per strip
+
+| Value | Name | Visual |
+|-------|------|--------|
+| `0` | **Jet** | A travelling blob / jet of light that moves per `speed`, `reverse` and `loop`, and fades over `fadeMs`. |
+| `1` | **Flash** | The whole strip lights up in the strip colour and fades out over `fadeMs`. Holding the pad sustains full brightness. |
+| `2` | **Burst** | A shockwave that splits from the strip centre outward toward both ends. |
+| `3` | **Sparkle** | A glittering shower: a pseudo-random subset of LEDs lights up per frame and decays. Holding the pad keeps the shower alive. |
+
+### 5.3 Beat detection (per strip)
+
+Standard onset detection, running at the ~31 fps analysis rate:
+
+```
+audio frame → FFT → band-limited spectral flux → adaptive threshold → onset
+                                             ↓
+                          inter-onset intervals → median → BPM
+```
+
+* **Onset function**: `bandFlux()` sums only the *positive* frame-to-frame magnitude
+  change inside `center ± width/2`, scaled by mic gain and normalised for window
+  width, so narrow and wide windows trigger comparably.
+* **Threshold**: adaptive, `mean + k·σ` over a ~900 ms window, with `k` from
+  `beatSensitivityPct` (3.2σ at 0 %, 0.6σ at 100 %).
+* **Refractory**: 180 ms minimum interval (rejects double triggers, caps at 333 BPM).
+* **Tempo**: median of the last 8 inter-onset intervals, folded into 60–170 BPM.
+* **Pulse**: a raised decay (`τ ≈ 120 ms`) published as `beatPct` for the UI meter.
+
+Because each strip has its own detector, a bass-band strip and a vocal-band strip
+can lock to different rhythms — that is what makes the two rocks feel independent.
+
+### 5.4 Retrigger
+
+* `retrigger = 1`: a new effect may fire once `retriggerMs` has elapsed since the
+  last one on that strip.
+* `retrigger = 0` (**Single**): nothing new fires while any effect is still active.
+
+## 6. Mode 2 — reserved
+
+Reserved for the next architectural step: multiple independent *layers* rendering
+into one physical strip (several light beams with their own thresholds, colours and
+beat behaviour, summed in the linear frame buffer). The accumulation buffer already
+exists in `LedStrip`, so this needs no driver change.
 
 ---
 
-## 6. Parameters
+## 7. Parameters
 
 `ledCount` is per strip because the physical count is not fixed by the firmware —
 each build can differ, and it can be re-tuned at any time. Everything is clamped on
@@ -164,18 +208,21 @@ driver out of range.
 
 | Parameter | Range | Default | Notes |
 |-----------|-------|---------|-------|
+| `mode` | 0/1/2 | 0 | Trigger input: `0` = band threshold, `1` = auto beat, `2` = manual pads |
+| `effect` | 0/1/2/3 | 0 | `0` = jet, `1` = flash, `2` = burst, `3` = sparkle |
 | `enabled` | 0/1 | 1 | Power. Off = strip dark, settings kept |
 | `brightnessPct` | 1…100 | 100 | Global max brightness ceiling for this strip |
 | `ledCount` | 1…1000 | 100 | Actual number of LEDs on this strip (shows calibration dot at `ledCount-1` while tuning) |
 | `centerHz` | 65…7600 | 150 / 1000 | Band centre. Strip 1 bass, strip 2 mids by default |
-| `widthHz` | 40…16000 | 250 / 1400 | Band width; wide = behaves like broadband |
-| `thresholdPct` | 0…100 | 35 / 40 | Band level that triggers a blob (drag directly on the live level meter) |
-| `retrigger` | 0/1 | 1 | `1` = retrigger after `retriggerMs`, `0` = single blob (wait until strip is empty) |
-| `retriggerMs` | 0…2000 | 300 | Minimum gap between blobs on one strip |
-| `blobLeds` | 1…1000 | 8 / 5 | Length of the light group |
+| `widthHz` | 40…16000 | 250 / 1400 | Band width; wide = behaves like broadband. Also the beat detector's listening window |
+| `thresholdPct` | 0…100 | 35 / 40 | Band level that fires the effect in **Threshold** mode (drag directly on the live level meter) |
+| `beatSensitivityPct` | 0…100 | 55 | Beat detector eagerness in **Auto beat** mode (0 = only obvious beats) |
+| `retrigger` | 0/1 | 1 | `1` = retrigger after `retriggerMs`, `0` = single (wait until the strip is idle) |
+| `retriggerMs` | 0…2000 | 300 | Minimum gap between effects on one strip |
+| `blobLeds` | 1…1000 | 8 / 5 | Length of the light group (jet / burst) |
 | `speed` | 1…500 | 45 / 80 | LEDs per second |
-| `fadeMs` | 50…10000 | 2000 / 1200 | Time for a blob to fade to nothing |
-| `color` | `000000`…`FFFFFF` | `FF6A00` / `0066FF` | Blob colour |
+| `fadeMs` | 50…10000 | 2000 / 1200 | Time for an effect to fade to nothing |
+| `color` | `000000`…`FFFFFF` | `FF6A00` / `0066FF` | Effect colour |
 | `reverse` | 0/1/2 | 0 | `0` = forward (`0→N-1`), `1` = reverse (`N-1→0`), `2` = ping-pong (`0↔N-1`) |
 | `loop` | 0/1 | 1 | `1` = loop / continuous bounce, `0` = one-shot |
 
@@ -190,7 +237,7 @@ UI only sends it when the slider is released.
 
 ---
 
-## 7. Web interface
+## 8. Web interface
 
 * The board raises an access point **`LightRocks`** (password `lightrocks`).
 * `http://192.168.4.1/` serves a single dark page, layout designed for a phone.
@@ -200,8 +247,16 @@ UI only sends it when the slider is released.
 * Strip 1 / Strip 2 tabs select which strip the parameter card edits.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
-* Live readouts: broadband level, dBFS, dominant frequency, active blob count per
-  strip, and a bar showing each strip's band level against its threshold.
+* A **Trigger input** selector switches that strip between `Threshold`,
+  `Auto Beat` and `Manual (Pads)`; the panel below shows only what is relevant
+  (level bar + threshold marker, beat pulse + BPM + sensitivity, …).
+* A **Triggered effect** selector chooses among `Jet`, `Flash`, `Burst`, `Sparkle`.
+* **Full-Screen Effect Pads**: a dedicated overlay split into one group per strip,
+  each with the four effect pads. Pads are multi-touch and support press-and-hold
+  (Flash and Sparkle sustain; Jet re-fires at the retrigger gap). Each group shows
+  that strip's live trigger state and output level.
+* Live readouts: broadband level, dBFS, dominant frequency, per-strip beat pulse /
+  BPM, active effect count, and a bar showing the level against the threshold.
 
 ### API
 
@@ -209,7 +264,8 @@ UI only sends it when the slider is released.
 |--------|------|---------|
 | GET | `/` | The control page |
 | GET | `/api/state` | Full state + telemetry + preset availability as JSON |
-| POST | `/api/params?strip=<i>&<key>=<value>`, `POST /api/params?gainDb=<n>` | Change live settings, returns the new state |
+| POST | `/api/params?strip=<i>&<key>=<value>`, `POST /api/params?gainDb=<n>` | Change live settings (204, no body) |
+| POST | `/api/tap?strip=<i>&effect=<0..3>&down=<0\|1>` | Fire an effect from a pad; `down=1` also starts/refreshes the hold |
 | POST | `/api/preset?slot=<1\|2\|3>&action=<save\|load>` | Save current state to preset bank 1–3, or load a bank into live state |
 | POST | `/api/reset` | Factory reset (restores hardcoded code defaults, keeps presets) |
 
@@ -217,22 +273,24 @@ Unknown arguments are ignored; out-of-range values are clamped.
 
 ---
 
-## 8. Persistence & Presets
+## 9. Persistence & Presets
 
 * All live parameters are written automatically to NVS (`Preferences`, namespace
   `lightrocks`, key `live`).
-* Writes are **debounced** (800 ms after the last change) so dragging sliders or
+* Writes are **debounced** (2 s after the last change) so dragging sliders or
   the colour wheel does not wear flash. On power-up, `live` is loaded automatically.
 * **Three preset banks** (`preset0`, `preset1`, `preset2`) can be saved and loaded
   from the UI. Loading a preset overwrites the current live parameters (and saves
   them to `live`).
 * **Factory reset** restores the hardcoded defaults from `defaultSettings()` in
   code (never overwritten by user saves) without deleting the 3 preset banks.
-* The settings blob is versioned (`v2`, 22 bytes per strip) and fixed-layout.
+* The settings blob is versioned (`v4`, 26 bytes per strip) and fixed-layout.
+  A `v3` blob is migrated automatically on load (missing fields take their
+  defaults); any other version falls back to the code defaults.
 
 ---
 
-## 9. Display and buttons
+## 10. Display and buttons
 
 | Control | Action |
 |---------|--------|
@@ -245,7 +303,7 @@ Unknown arguments are ignored; out-of-range values are clamped.
 
 ---
 
-## 10. Non-goals (for now)
+## 11. Non-goals (for now)
 
 * No station mode / no router connection.
 * No OTA updates.

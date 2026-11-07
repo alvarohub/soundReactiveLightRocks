@@ -187,6 +187,76 @@ void LedStrip::addRing(float centerPos, float halfWidth, float amp, uint8_t r,
   }
 }
 
+void LedStrip::addFill(float amp, uint8_t r, uint8_t g, uint8_t b) {
+  if (!ready_ || amp <= 0.0f) {
+    return;
+  }
+  const float clamped = amp > 1.0f ? 1.0f : amp;
+  const float v = powf(clamped, kRenderGamma);
+  const float vr = v * ((float)r / 255.0f);
+  const float vg = v * ((float)g / 255.0f);
+  const float vb = v * ((float)b / 255.0f);
+
+  for (uint16_t i = 0; i < count_; i++) {
+    buf_[i][0] += vr;
+    buf_[i][1] += vg;
+    buf_[i][2] += vb;
+    if (buf_[i][0] > peak_) {
+      peak_ = buf_[i][0];
+    }
+    if (buf_[i][1] > peak_) {
+      peak_ = buf_[i][1];
+    }
+    if (buf_[i][2] > peak_) {
+      peak_ = buf_[i][2];
+    }
+  }
+  dirty_ = true;
+}
+
+void LedStrip::addSparkles(float amp, uint32_t seed, uint8_t r, uint8_t g,
+                           uint8_t b) {
+  if (!ready_ || amp <= 0.0f) {
+    return;
+  }
+  const float clamped = amp > 1.0f ? 1.0f : amp;
+  const float env = powf(clamped, kRenderGamma);
+  const float cr = (float)r / 255.0f;
+  const float cg = (float)g / 255.0f;
+  const float cb = (float)b / 255.0f;
+
+  for (uint16_t i = 0; i < count_; i++) {
+    uint32_t h = (uint32_t)i * 2654435761u ^ (seed * 2246822519u);
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    const uint32_t bucket = h & 0xFFu;
+    if (bucket > 72u) {
+      continue; // ~28% of pixels sparkle each frame
+    }
+    const float spark = (1.0f - (float)bucket / 72.0f) * env;
+    // Brightest sparks get a crisp white-hot core tint.
+    const float whiteMix = bucket < 14u ? (0.42f * clamped) : 0.0f;
+    const float sr = cr + (1.0f - cr) * whiteMix;
+    const float sg = cg + (1.0f - cg) * whiteMix;
+    const float sb = cb + (1.0f - cb) * whiteMix;
+
+    buf_[i][0] += spark * sr;
+    buf_[i][1] += spark * sg;
+    buf_[i][2] += spark * sb;
+    if (buf_[i][0] > peak_) {
+      peak_ = buf_[i][0];
+    }
+    if (buf_[i][1] > peak_) {
+      peak_ = buf_[i][1];
+    }
+    if (buf_[i][2] > peak_) {
+      peak_ = buf_[i][2];
+    }
+  }
+  dirty_ = true;
+}
+
 void LedStrip::show(uint8_t brightnessPct) {
   if (!ready_) {
     return;
