@@ -9,6 +9,7 @@ along the strip — either orbiting continuously as a closed loop (`Loop`), or
 disappearing past the end (`One-shot`) — while fading out. Each strip has its own
 band, threshold, speed, fade time, blob length, direction, loop mode, and colour.
 
+* **AI / Developer Handoff (start here):** [docs/HANDOFF.md](docs/HANDOFF.md)
 * Behaviour specification: [docs/SPEC.md](docs/SPEC.md)
 * How it is built and why: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 * Work log and decisions: [docs/JOURNAL.md](docs/JOURNAL.md)
@@ -17,12 +18,15 @@ band, threshold, speed, fade time, blob length, direction, loop mode, and colour
 
 ## Build and flash
 
+Pins (`STRIP1_PIN`, `STRIP2_PIN`) and Wi-Fi AP credentials (`WIFI_SSID`,
+`WIFI_PASSWORD`) are configured per environment in [platformio.ini](platformio.ini):
+
 ```bash
-pio run                       # build M5StickS3 (default)
+pio run                       # build M5StickS3 (default: G9/G10, AP "LightRocks-1")
 pio run -t upload             # flash M5StickS3
 pio device monitor            # serial output @115200
 
-pio run -e m5stick-c-plus2            # build M5StickC Plus2
+pio run -e m5stick-c-plus2            # build M5StickC Plus2 (G32/G33, AP "LightRocks-3")
 pio run -e m5stick-c-plus2 -t upload  # flash M5StickC Plus2
 ```
 

@@ -10,14 +10,28 @@
 // strip to another pin or raising the LED ceiling is a one-line edit.
 // ---------------------------------------------------------------------------
 
-// NeoPixel data pins, one per strip, both on the Grove connector:
-//   - M5StickS3:      G9 (yellow wire) and G10 (white wire)
-//   - M5StickC Plus2: G32 (yellow wire) and G33 (white wire)
-#if defined(BOARD_M5STICKS3)
-constexpr int kStripPins[] = {9, 10};
+// NeoPixel data pins, one per strip. Configured per environment in
+// platformio.ini (-DSTRIP1_PIN=... -DSTRIP2_PIN=...), with safe per-chip
+// defaults here as a fallback:
+//   - M5StickS3 (ESP32-S3):   G9 (yellow wire) and G10 (white wire)
+//   - M5StickC Plus2 (ESP32): G32 (yellow wire) and G33 (white wire)
+#ifndef STRIP1_PIN
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#define STRIP1_PIN 9
 #else
-constexpr int kStripPins[] = {32, 33};
+#define STRIP1_PIN 32
 #endif
+#endif
+
+#ifndef STRIP2_PIN
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#define STRIP2_PIN 10
+#else
+#define STRIP2_PIN 33
+#endif
+#endif
+
+constexpr int kStripPins[] = {STRIP1_PIN, STRIP2_PIN};
 constexpr size_t kStripCount = sizeof(kStripPins) / sizeof(kStripPins[0]);
 
 // The physical LED count is not fixed by the firmware: it varies per build and

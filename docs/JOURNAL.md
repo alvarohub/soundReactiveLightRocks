@@ -253,6 +253,17 @@ The name "Light Rocks" itself turned out to be correct, so it stays.
      6. **Strip calibration** — separate card for `LEDs on this strip (1..1000)`,
         `-10 / ← / → / +10` step buttons, and `Calibrate / Exit calib`.
 
+10. **Round 4 — Multi-module Wi-Fi SSIDs, per-env pins in `platformio.ini`, & persistent LCD identity**:
+   - Moved `WIFI_SSID`, `WIFI_PASSWORD`, `STRIP1_PIN`, and `STRIP2_PIN` into
+     `platformio.ini` per environment (`m5sticks3` uses `G9/G10`, `m5stick-c-plus2`
+     uses `G32/G33`) with safe fallbacks in `src/config.h`.
+   - Added persistent display of the module's `WIFI_SSID` and IP address on the
+     bottom line of the LCD (`src/main.cpp`) as well as in the Web UI header so
+     multiple programmed modules are immediately distinguishable.
+   - Created [docs/HANDOFF.md](./HANDOFF.md) summarizing the full system state,
+     critical RTOS/RMT/HTTP stability invariants, and the next roadmap items for
+     handoff.
+
 ---
 
 ## Roadmap / Next Up (DO NOT FORGET)
