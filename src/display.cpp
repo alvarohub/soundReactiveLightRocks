@@ -64,6 +64,25 @@ uint16_t Display::stripColor(const Settings &settings, size_t i) const {
   return anyOn ? rgb565(s.r, s.g, s.b) : kGrey;
 }
 
+char Display::triggerChar(const LayerSettings &s) {
+  if (!s.enabled) {
+    return '-';
+  }
+  if (s.triggers & kTrigBeat) {
+    return 'B';
+  }
+  if (s.triggers & (kTrigAccel | kTrigGyro)) {
+    return 'A';
+  }
+  if (s.triggers & kTrigThreshold) {
+    return 'S';
+  }
+  if (s.triggers & kTrigTap) {
+    return 'M';
+  }
+  return '?';
+}
+
 uint16_t Display::barColor(int y) const {
   const int span = barBottom_ - barTop_;
   float t = (float)(barBottom_ - y) / (float)span;
@@ -171,18 +190,18 @@ void Display::drawStripChrome(const float *bands, const Settings &settings) {
       // the container holds more than one.
       const size_t l = primaryLayer(settings, i);
       const LayerSettings &s = settings.layer[i][l];
-      const char prefix = !s.enabled ? '-'
-                          : (s.mode == LayerSettings::kBeat ? 'B'
-                             : (s.mode == LayerSettings::kManual ? 'M' : 'S'));
+      const char prefix = triggerChar(s);
       const uint8_t layers = settings.phys[i].layerCount;
       M5.Display.setTextSize(1);
       M5.Display.setTextColor(stripColor(settings, i), kBlack);
       M5.Display.setCursor(2, meterY_[i]);
+      // ">S1.2" = selected strip 1, threshold armed, 2 layers inside.
       if (layers > 1) {
-        M5.Display.printf("%c%u.%u", prefix, (unsigned)i + 1,
-                          (unsigned)layers);
+        M5.Display.printf("%c%c%u.%u", i == selected_ ? '>' : ' ', prefix,
+                          (unsigned)i + 1, (unsigned)layers);
       } else {
-        M5.Display.printf("%c%u", prefix, (unsigned)i + 1);
+        M5.Display.printf("%c%c%u", i == selected_ ? '>' : ' ', prefix,
+                          (unsigned)i + 1);
       }
     }
   }
@@ -212,9 +231,8 @@ void Display::drawMeters(const Telemetry &tele, const Settings &settings) {
     // A threshold tick only means something when the dominant layer uses the
     // threshold input.
     const LayerSettings &s = settings.layer[i][primaryLayer(settings, i)];
-    const int thrQ = (s.enabled && s.mode == LayerSettings::kThreshold)
-                         ? (s.thresholdPct / 2)
-                         : -1;
+    const int thrQ =
+        (s.enabled && (s.triggers & kTrigThreshold)) ? (s.thresholdPct / 2) : -1;
     const uint32_t key = ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) |
                          (uint32_t)s.b | ((uint32_t)s.enabled << 28);
     if (q == prevMeterQ_[i] && thrQ == prevThrQ_[i] &&

@@ -1,5 +1,6 @@
 #include "layer.h"
 
+#include <math.h>
 #include <stddef.h>
 
 namespace {
@@ -15,6 +16,27 @@ inline int8_t initialDir(const LayerSettings &s) {
   return s.reverse == LayerSettings::kReverse ? -1 : 1;
 }
 
+// Small HSV->RGB helper for the whip's direction colour (s = v = 1).
+void hueToRgb(float h, uint8_t &r, uint8_t &g, uint8_t &b) {
+  h -= floorf(h);
+  const float sector = h * 6.0f;
+  const int i = (int)sector;
+  const float f = sector - (float)i;
+  const float q = 1.0f - f;
+  float rr = 0.0f, gg = 0.0f, bb = 0.0f;
+  switch (i % 6) {
+  case 0: rr = 1.0f; gg = f; break;
+  case 1: rr = q; gg = 1.0f; break;
+  case 2: gg = 1.0f; bb = f; break;
+  case 3: gg = q; bb = 1.0f; break;
+  case 4: rr = f; bb = 1.0f; break;
+  default: rr = 1.0f; bb = q; break;
+  }
+  r = (uint8_t)(rr * 255.0f + 0.5f);
+  g = (uint8_t)(gg * 255.0f + 0.5f);
+  b = (uint8_t)(bb * 255.0f + 0.5f);
+}
+
 } // namespace
 
 void LayerEngine::reset() {
@@ -24,6 +46,8 @@ void LayerEngine::reset() {
     blobs_[i].pos = 0.0f;
     blobs_[i].dir = 1;
     blobs_[i].burst = 0;
+    blobs_[i].custom = 0;
+    blobs_[i].speedScale = 1.0f;
   }
   flashAmp_ = 0.0f;
   sparkleAmp_ = 0.0f;
@@ -72,6 +96,29 @@ void LayerEngine::spawnBurst(const LayerSettings &s, uint16_t ledCount) {
   }
 }
 
+void LayerEngine::spawnWhip(const LayerSettings &s, uint16_t ledCount) {
+  const float swing = motion_.swing;
+  // Direction of travel follows the horizontal component of the swing, so
+  // whipping left sends the light one way and right the other.
+  const int8_t dir = (motion_.ax + motion_.ay) >= 0.0f ? 1 : -1;
+
+  Blob &b = allocSlot();
+  b.active = true;
+  b.amp = 1.0f;
+  b.burst = 0;
+  b.dir = dir;
+  b.pos = dir > 0 ? 0.0f : (ledCount > 1 ? (float)(ledCount - 1) : 0.0f);
+  b.custom = 1;
+  hueToRgb(motion_.hue(), b.cr, b.cg, b.cb);
+
+  // Speed scales with how hard the stick was whipped. The magnitude is baked
+  // into a per-blob "speed" by using a short fade instead: the blob keeps the
+  // layer speed, but faster whips get a shorter effective trail. To make the
+  // travel speed itself depend on the swing, store it on the blob.
+  b.speedScale = 0.35f + 2.4f * (swing > 2.0f ? 1.0f : swing / 2.0f);
+  (void)s;
+}
+
 void LayerEngine::triggerEffect(uint8_t effect, const LayerSettings &s,
                                 uint16_t ledCount) {
   switch (effect) {
@@ -83,6 +130,9 @@ void LayerEngine::triggerEffect(uint8_t effect, const LayerSettings &s,
     break;
   case LayerSettings::kEffectSparkle:
     sparkleAmp_ = 1.0f;
+    break;
+  case LayerSettings::kEffectWhip:
+    spawnWhip(s, ledCount);
     break;
   case LayerSettings::kEffectJet:
   default:
@@ -110,9 +160,10 @@ void LayerEngine::setPadHeld(bool held, uint8_t effect) {
   }
 }
 
-void LayerEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
-                         float dtSec, const LayerSettings &s,
+void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion,
+                         uint32_t nowMs, float dtSec, const LayerSettings &s,
                          uint16_t ledCount) {
+  motion_ = motion;
   const float decayPerSec = 1000.0f / (float)s.fadeMs;
   const float laps = (float)ledCount;
   const float maxPos = laps > 1.0f ? (laps - 1.0f) : 0.0f;
@@ -214,7 +265,9 @@ void LayerEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
       }
     } else {
       const float dir = (s.reverse == LayerSettings::kReverse) ? -1.0f : 1.0f;
-      b.pos += (float)s.speed * dir * dtSec;
+      const float spd = (b.custom ? (float)s.speed * b.speedScale
+                                 : (float)s.speed);
+      b.pos += spd * dir * dtSec;
       if (s.loop) {
         while (b.pos < 0.0f) {
           b.pos += laps;
@@ -244,11 +297,26 @@ void LayerEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
   //   kManual    -> pads / BtnA only
   //   kBeat      -> per-layer beat detector
   //   kThreshold -> band level reaches thresholdPct
+  // Trigger inputs are additive: any armed source fires the layer. Tap is
+  // evaluated by the caller, because a pad may request a different effect than
+  // the layer's own, so kTrigTap only gates whether pads are allowed to.
   bool shouldTrigger = false;
-  if (s.mode == LayerSettings::kBeat) {
-    shouldTrigger = onBeat;
-  } else if (s.mode == LayerSettings::kThreshold) {
-    shouldTrigger = (bandLevel * 100.0f >= (float)s.thresholdPct);
+  if ((s.triggers & kTrigThreshold) &&
+      bandLevel * 100.0f >= (float)s.thresholdPct) {
+    shouldTrigger = true;
+  }
+  if ((s.triggers & kTrigBeat) && onBeat) {
+    shouldTrigger = true;
+  }
+  if ((s.triggers & kTrigAccel) && motion.ok &&
+      motion.swing / MotionSensor::kSwingFullScale * 100.0f >=
+          (float)s.motionThresholdPct) {
+    shouldTrigger = true;
+  }
+  if ((s.triggers & kTrigGyro) && motion.ok &&
+      motion.twist / MotionSensor::kTwistFullScale * 100.0f >=
+          (float)s.motionThresholdPct) {
+    shouldTrigger = true;
   }
 
   if (!shouldTrigger) {
@@ -268,17 +336,22 @@ void LayerEngine::update(float bandLevel, bool onBeat, uint32_t nowMs,
 }
 
 void LayerEngine::render(LedStrip &strip, const LayerSettings &s) {
-  const float w = (float)s.intensityPct / 100.0f;
+  // Intensity is meant as "share of the visible brightness", so compensate for
+  // the output gamma: without this, 50 % on the slider shows as ~10 % of the
+  // light and layers cannot be balanced by eye.
+  const float shown = (float)s.intensityPct / 100.0f;
+  const float w = powf(shown, 1.0f / kRenderGamma);
   peak_ = 0.0f;
 
   if (flashAmp_ > 0.0f) {
-    strip.addFill(flashAmp_ * w, s.r, s.g, s.b);
-    peak_ = flashAmp_ * w;
+    strip.addFill(flashAmp_, w, s.r, s.g, s.b);
+    peak_ = powf(flashAmp_ > 1.0f ? 1.0f : flashAmp_, kRenderGamma) * shown;
   }
   if (sparkleAmp_ > 0.0f) {
-    strip.addSparkles(sparkleAmp_ * w, sparkleSeed_, s.r, s.g, s.b);
-    if (sparkleAmp_ * w > peak_) {
-      peak_ = sparkleAmp_ * w;
+    strip.addSparkles(sparkleAmp_, w, sparkleSeed_, s.r, s.g, s.b);
+    const float sp = powf(sparkleAmp_ > 1.0f ? 1.0f : sparkleAmp_, kRenderGamma) * shown;
+    if (sp > peak_) {
+      peak_ = sp;
     }
   }
 
@@ -292,11 +365,14 @@ void LayerEngine::render(LedStrip &strip, const LayerSettings &s) {
     if (!b.active) {
       continue;
     }
-    const float amp = b.amp * w;
-    strip.addRing(b.pos, halfWidth, amp, s.r, s.g, s.b,
+    const uint8_t rr = b.custom ? b.cr : s.r;
+    const uint8_t gg = b.custom ? b.cg : s.g;
+    const uint8_t bb = b.custom ? b.cb : s.b;
+    strip.addRing(b.pos, halfWidth, b.amp, w, rr, gg, bb,
                   b.burst ? false : wrapSeam);
-    if (amp > peak_) {
-      peak_ = amp;
+    const float peakAmp = powf(b.amp, kRenderGamma) * shown;
+    if (peakAmp > peak_) {
+      peak_ = peakAmp;
     }
   }
 }

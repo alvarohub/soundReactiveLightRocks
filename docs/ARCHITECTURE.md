@@ -127,6 +127,23 @@ Two consequences worth remembering:
 * **`intensityPct` is applied at render time** (the amp is multiplied before it is
   added), so lowering a layer's weight never changes its colour.
 
+## Gamma belongs to the output, not to the effects
+
+`addRing` / `addFill` / `addSparkles` add **linear** light and know nothing about
+gamma. `show()` applies it once, to the merged maximum of each pixel, and then
+scales the whole RGB vector by the same factor:
+
+```cpp
+const float g = powf(m > 1.0f ? 1.0f : m, kRenderGamma);
+const float k = g / m;                 // hue ratio preserved
+pr *= k; pg *= k; pb *= k;
+```
+
+Applying gamma per effect instead (which an earlier version did) has two
+consequences that are easy to miss: amplitudes stop adding like light, and the
+layer weight silently becomes `w^2.2`. If you add a new primitive to `LedStrip`,
+keep it linear.
+
 ## Why the layers are not inside `LedStrip`
 
 It is a deliberate split between *what the light should look like* and *how to get
@@ -240,8 +257,9 @@ or in ESP-DSP. If that is not worth 35 lines and one extra env, delete the
 | You want to… | Touch |
 |--------------|-------|
 | add a parameter | `settings.h` (field + clamp + default) → `settings.cpp` (bytes, bump version) → `webui.cpp` (SPEC array + a line in `handleParams`) → SPEC.md table |
-| add an effect | `LayerSettings::Effect` in `settings.h` → `LayerEngine::triggerEffect()` + `render()` in `layer.cpp` → pad list `PADEFFS` in `webui.cpp` |
-| add a trigger input | `LayerSettings::Mode` → the `shouldTrigger` block at the end of `LayerEngine::update()` → mode buttons in `webui.cpp` |
+| add an effect | `LayerSettings::Effect` in `settings.h` → `LayerEngine::triggerEffect()` + `render()` in `layer.cpp` → effect chips + `PADEFFS` in `webui.cpp` |
+| add a trigger input | a new `kTrig*` bit in `settings.h` → the `shouldTrigger` block at the end of `LayerEngine::update()` → a chip in `webui.cpp` (`CHIPS` + `TB`) |
+| change the whip | `spawnWhip()` in `layer.cpp` (speed from `motion_.swing`, colour from `motion_.hue()`) |
 | change beat behaviour | `beat.cpp` (threshold, refractory, tempo range) or `SpectrumAnalyzer::bandFlux()` for the onset function |
 | move a strip to another pin | `kStripPins` in `config.h` |
 | change the LED ceiling | `kMaxLedsPerStrip` in `config.h` (buffers are sized from it) |

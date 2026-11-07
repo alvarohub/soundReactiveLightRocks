@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "motion.h"
 #include "settings.h"
 #include "strip.h"
 
@@ -13,6 +14,11 @@ struct Blob {
   float amp = 0.0f;  // 0..1, falls linearly to nothing over fadeMs
   int8_t dir = 1;    // +1 forward, -1 reverse (ping-pong and centre bursts)
   uint8_t burst = 0; // 1 = spawned from the strip centre outward
+  // Optional per-blob colour, used by the whip (colour follows the swing
+  // direction instead of the layer colour).
+  uint8_t custom = 0;
+  uint8_t cr = 255, cg = 255, cb = 255;
+  float speedScale = 1.0f; // whip: faster travel for a harder swing
   bool active = false;
 };
 
@@ -30,8 +36,9 @@ class LayerEngine {
 public:
   // Ages and moves all active effects, then fires the configured effect when
   // the layer's trigger input says so.
-  void update(float bandLevel, bool onBeat, uint32_t nowMs, float dtSec,
-              const LayerSettings &s, uint16_t ledCount);
+  void update(float bandLevel, bool onBeat, const MotionState &motion,
+              uint32_t nowMs, float dtSec, const LayerSettings &s,
+              uint16_t ledCount);
 
   // Adds this layer's active effects to the strip's frame buffer, scaled by the
   // layer's intensity weight. Does not clear or show the strip. Also records
@@ -56,6 +63,7 @@ private:
   Blob &allocSlot();
   void spawnJet(const LayerSettings &s, uint16_t ledCount);
   void spawnBurst(const LayerSettings &s, uint16_t ledCount);
+  void spawnWhip(const LayerSettings &s, uint16_t ledCount);
 
   Blob blobs_[kMaxBlobs];
   float flashAmp_ = 0.0f;
@@ -68,4 +76,7 @@ private:
   uint8_t heldEffect_ = LayerSettings::kEffectFlash;
   bool held_ = false;
   bool spawned_ = false;
+  // Motion snapshot from the current frame, used by the whip effect (which is
+  // also reachable from a fingertip pad).
+  MotionState motion_;
 };

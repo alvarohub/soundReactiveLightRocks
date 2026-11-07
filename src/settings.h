@@ -21,18 +21,26 @@
 
 constexpr size_t kMaxLayersPerStrip = 4;
 
-struct LayerSettings {
-  enum Mode : uint8_t {
-    kThreshold = 0, // fires when the band level rises above thresholdPct
-    kBeat = 1,      // fires on detected beats inside this layer's band
-    kManual = 2,    // silent until fired from the pads (or BtnA)
-  };
+// Trigger inputs. These are NOT exclusive: a layer can be armed by several at
+// once and fires whenever any of them does. Stored as a bitmask.
+enum LayerTrigger : uint8_t {
+  kTrigThreshold = 1u << 0, // band level rises above thresholdPct
+  kTrigBeat      = 1u << 1, // a beat is detected inside this layer's band
+  kTrigTap       = 1u << 2, // a fingertip pad (or BtnA) is pressed
+  kTrigAccel     = 1u << 3, // the stick is whipped / shaken
+  kTrigGyro      = 1u << 4, // the stick is twisted quickly
+};
 
+constexpr uint8_t kAllTriggers =
+    kTrigThreshold | kTrigBeat | kTrigTap | kTrigAccel | kTrigGyro;
+
+struct LayerSettings {
   enum Effect : uint8_t {
     kEffectJet = 0,     // travelling light blob / jet
     kEffectFlash = 1,   // whole-strip flash that fades out
     kEffectBurst = 2,   // shockwave splitting outward from the strip centre
     kEffectSparkle = 3, // glittering shower of sparks
+    kEffectWhip = 4,    // whip: speed from |accel|, colour from its direction
   };
 
   enum DirMode : uint8_t {
@@ -41,7 +49,7 @@ struct LayerSettings {
     kPingPong = 2, // bounces at the ends
   };
 
-  uint8_t mode = kThreshold;
+  uint8_t triggers = kTrigThreshold; // bitmask of LayerTrigger
   uint8_t effect = kEffectJet;
   uint8_t enabled = 1;
   uint8_t intensityPct = 100; // this layer's weight in the merged output (1..100)
@@ -50,8 +58,11 @@ struct LayerSettings {
   uint16_t centerHz = 150;
   uint16_t widthHz = 250;
 
-  uint8_t thresholdPct = 35;       // used in kThreshold mode
-  uint8_t beatSensitivityPct = 55; // used in kBeat mode
+  uint8_t thresholdPct = 35;       // gate for kTrigThreshold
+  uint8_t beatSensitivityPct = 55; // eagerness of kTrigBeat
+  // Gate for the motion triggers: |accel| or |gyro| must reach this share of
+  // full scale before kTrigAccel / kTrigGyro fires.
+  uint8_t motionThresholdPct = 30;
 
   uint8_t retrigger = 1;      // 1 = gap after retriggerMs, 0 = wait until idle
   uint16_t retriggerMs = 300; // minimum gap between effects on this layer
@@ -118,9 +129,9 @@ inline void clampPhysicalStrip(PhysicalStripSettings &p) {
 }
 
 inline void clampLayer(LayerSettings &s) {
-  s.mode = clampU8(s.mode, LayerSettings::kThreshold, LayerSettings::kManual);
+  s.triggers = (uint8_t)(s.triggers & kAllTriggers);
   s.effect =
-      clampU8(s.effect, LayerSettings::kEffectJet, LayerSettings::kEffectSparkle);
+      clampU8(s.effect, LayerSettings::kEffectJet, LayerSettings::kEffectWhip);
   s.enabled = s.enabled ? 1 : 0;
   s.intensityPct =
       clampU8(s.intensityPct, Settings::kMinIntensityPct, 100);
@@ -130,6 +141,7 @@ inline void clampLayer(LayerSettings &s) {
 
   s.thresholdPct = clampU8(s.thresholdPct, 0, 100);
   s.beatSensitivityPct = clampU8(s.beatSensitivityPct, 0, 100);
+  s.motionThresholdPct = clampU8(s.motionThresholdPct, 0, 100);
   s.retrigger = s.retrigger ? 1 : 0;
   s.retriggerMs = clampU16(s.retriggerMs, 0, Settings::kMaxRetriggerMs);
 
@@ -231,13 +243,13 @@ struct Telemetry {
 // Fixed-layout, versioned binary encoding of Settings for NVS flash storage.
 // ---------------------------------------------------------------------------
 
-constexpr size_t kLayerBlockSize = 24;
+constexpr size_t kLayerBlockSize = 26;
 constexpr size_t kPhysBlockSize = 4;
 constexpr size_t kSettingsHeaderSize = 2; // version, gainDb
 constexpr size_t kSettingsBlobSize =
     kSettingsHeaderSize + kPhysBlockSize * kStripCount +
     kLayerBlockSize * kStripCount * kMaxLayersPerStrip;
-constexpr uint8_t kSettingsBlobVersion = 5;
+constexpr uint8_t kSettingsBlobVersion = 6;
 
 void encodeSettings(const Settings &s, uint8_t *out);
 bool decodeSettings(const uint8_t *in, size_t len, Settings &out);

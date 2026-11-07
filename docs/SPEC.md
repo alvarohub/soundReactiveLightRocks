@@ -4,7 +4,7 @@
 > happens to do today. When behaviour and this file disagree, one of them is a bug.
 > Progress against this spec is tracked in [JOURNAL.md](./JOURNAL.md).
 
-Status: **v0.4 — physical strips as containers for up to 4 independent light layers, per-layer trigger inputs (threshold / auto beat / manual pads), four effects, per-layer intensity, solo preview, full-screen pad view per layer, M5StickS3 + M5StickC Plus2**.
+Status: **v0.5 — physical strips as containers for up to 4 light layers, five non-exclusive trigger inputs (threshold, beat, pads, accelerometer, gyroscope), five effects including the whip, per-layer intensity, solo preview, per-layer pad view, M5StickS3 + M5StickC Plus2**.
 
 ---
 
@@ -176,18 +176,38 @@ Why this matters:
 `ledCount` and `brightnessPct` belong to the **strip**; everything about *what the
 light does* belongs to the **layer**.
 
-### 5.1 Trigger input (`mode`) — chosen independently per layer
+### 5.1 Trigger inputs (`triggers`) — a bitmask, NOT exclusive
 
-| Value | Name | Behaviour |
-|-------|------|-----------|
-| `0` | **Threshold** | The effect fires when the strip's band level reaches `thresholdPct`. |
-| `1` | **Auto beat** | The effect fires on detected beats *inside this strip's frequency window*. Each strip owns its own `BeatDetector`, fed by `bandFlux(centerHz, widthHz)`. |
-| `2` | **Manual (pads)** | The microphone is ignored; only the fingertip pads and **BtnA** fire the effect. |
+A layer can be armed by several sources at once and fires on whichever happens
+first. The GUI shows them as tickable chips.
 
-`thresholdPct` and the beat detector are therefore two interchangeable *inputs* to
-the same effect pipeline, not two different renderers. `kManual` keeps the layer
-dark until a pad (or **BtnA**) fires it, so a layer can be a pure performance
-instrument.
+| Bit | Value | Source | Gate |
+|-----|-------|--------|------|
+| `kTrigThreshold` | 1 | band level | `thresholdPct` |
+| `kTrigBeat` | 2 | beat detected in this layer's band | `beatSensitivityPct` |
+| `kTrigTap` | 4 | fingertip pad (or BtnA test trigger) | — |
+| `kTrigAccel` | 8 | the stick is whipped / shaken | `motionThresholdPct` on \|a\| − 1 g |
+| `kTrigGyro` | 16 | the stick is twisted quickly | `motionThresholdPct` on \|ω\| |
+
+* `triggers = 0` means the layer is silent: no source can fire it.
+* The pad path is gated by `kTrigTap`, so unticking it really does stop pads from
+  reaching that layer; BtnA scrolls strips and BtnB cycles the trigger set.
+* Motion is read once per frame from the on-board IMU. `swing` is the magnitude of
+  the acceleration **with gravity removed**, so a stick lying still reads 0 and a
+  whip reads large.
+
+### 5.1b The whip effect (`kEffectWhip`)
+
+Designed for the accelerometer: a blob is launched along the strip and
+
+* **travel speed scales with how hard the stick was swung**
+  (`speedScale = 0.35 + 2.4 · swing / 2 g`, so 1× at a gentle flick and ~2.8× at a
+  hard whip);
+* **travel direction** follows the sign of the horizontal acceleration, so whipping
+  left and right sends the light opposite ways;
+* **colour comes from the swing direction** (`atan2(ay, ax)` → hue), so each
+  direction of a whip has its own colour — the effect reads as a lash of light
+  rather than a generic blob.
 
 ### 5.2 Effects (`effect`) — one chosen per layer
 
@@ -197,6 +217,7 @@ instrument.
 | `1` | **Flash** | The whole strip lights up in the strip colour and fades out over `fadeMs`. Holding the pad sustains full brightness. |
 | `2` | **Burst** | A shockwave that splits from the strip centre outward toward both ends. |
 | `3` | **Sparkle** | A glittering shower: a pseudo-random subset of LEDs lights up per frame and decays. Holding the pad keeps the shower alive. |
+| `4` | **Whip** | A lash of light whose speed follows the swing strength and whose colour follows the swing direction — see §5.1b. |
 
 ### 5.3 Beat detection (per layer)
 
@@ -253,14 +274,15 @@ driver out of range.
 
 | Parameter | Range | Default | Notes |
 |-----------|-------|---------|-------|
-| `mode` | 0/1/2 | 0 | Trigger input: `0` = band threshold, `1` = auto beat, `2` = manual pads |
-| `effect` | 0/1/2/3 | 0 | `0` = jet, `1` = flash, `2` = burst, `3` = sparkle |
+| `triggers` | bitmask 0…31 | 1 | Any combination of threshold 1, beat 2, tap 4, accel 8, gyro 16 |
+| `effect` | 0…4 | 0 | `0` = jet, `1` = flash, `2` = burst, `3` = sparkle, `4` = whip |
 | `enabled` | 0/1 | 1 | Layer power. Off = this layer contributes nothing, settings kept |
 | `intensityPct` | 1…100 | 100 | This layer's weight in the merged output |
 | `centerHz` | 65…7600 | 150 / 1000 | Band centre (strip 1 layer 1 bass, strip 2 layer 1 mids by default) |
 | `widthHz` | 40…16000 | 250 / 1400 | Band width; also the beat detector's listening window |
 | `thresholdPct` | 0…100 | 35 / 40 | Level that fires the effect in **Threshold** mode (drag the white marker) |
-| `beatSensitivityPct` | 0…100 | 55 | Detector eagerness in **Auto beat** mode |
+| `beatSensitivityPct` | 0…100 | 55 | Detector eagerness for the beat input |
+| `motionThresholdPct` | 0…100 | 30 | Gate for the accelerometer/gyroscope inputs |
 | `retrigger` | 0/1 | 1 | `1` = retrigger after `retriggerMs`, `0` = single (wait until idle) |
 | `retriggerMs` | 0…2000 | 300 | Minimum gap between effects on this layer |
 | `blobLeds` | 1…1000 | 8 / 5 | Length of the light group (jet / burst) |
@@ -298,10 +320,12 @@ it when the slider is released.
   previews one layer alone.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
-* A **Trigger input** selector switches that strip between `Threshold`,
-  `Auto Beat` and `Manual (Pads)`; the panel below shows only what is relevant
-  (level bar + threshold marker, beat pulse + BPM + sensitivity, …).
-* A **Triggered effect** selector chooses among `Jet`, `Flash`, `Burst`, `Sparkle`.
+* **Trigger inputs** are five tickable chips (`Threshold`, `Auto beat`, `Tap pads`,
+  `Accelerometer`, `Gyroscope`). Several can be armed at once; only the relevant
+  controls below are shown (level bar + marker, beat sensitivity, motion
+  threshold).
+* A **Triggered effect** selector chooses among `Jet`, `Flash`, `Burst`, `Sparkle`,
+  `Whip`.
 * **Layer intensity** scales one layer against the others; **Strip max brightness**
   scales the merged result.
 * **Full-Screen Effect Pads**: a dedicated overlay with **one group per layer**
@@ -339,10 +363,11 @@ Unknown arguments are ignored; out-of-range values are clamped.
   them to `live`).
 * **Factory reset** restores the hardcoded defaults from `defaultSettings()` in
   code (never overwritten by user saves) without deleting the 3 preset banks.
-* The settings blob is versioned (`v5`: 4-byte physical block + 24-byte layer block
-  × 4 layers per strip, 202 bytes total) and fixed-layout.
-  A `v4` or `v3` blob is migrated automatically on load: its single "strip" becomes
-  the physical container plus layer 0. Any other version falls back to defaults.
+* The settings blob is versioned (`v6`: 4-byte physical block + 26-byte layer block
+  × 4 layers per strip, 210 bytes total) and fixed-layout.
+  A `v5`, `v4` or `v3` blob is migrated automatically on load; an old single
+  `mode` enum becomes the matching trigger bit. Any other version falls back to
+  defaults.
 
 ---
 
@@ -351,9 +376,9 @@ Unknown arguments are ignored; out-of-range values are clamped.
 | Control | Action |
 |---------|--------|
 | Screen | Spectrum bars, the dominant layer's band per strip, one merged output meter per strip (`S1`/`B1`/`M1`, plus `.N` when the strip holds N layers), AP status |
-| BtnA click | Manual test trigger on both strips (tune the look without music) |
+| BtnA click | Select the next physical strip (shown with `>` on the LCD) |
 | BtnA hold | Toggle the access point |
-| BtnB click | Cycle mic gain 0 → 6 → 12 → 18 → 0 |
+| BtnB click | Cycle the trigger set of every live layer on the selected strip |
 | BtnB hold | Save settings to flash |
 | Boot | 3 s banner with SSID, password and URL |
 

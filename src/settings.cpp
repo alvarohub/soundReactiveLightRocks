@@ -11,6 +11,7 @@ constexpr char kPresetKeys[SettingsStore::kPresetCount][8] = {
 
 // Older layouts, kept so presets written by earlier firmware still load: their
 // single "strip" becomes layer 0 of that physical strip.
+constexpr uint8_t kBlobVersionV5 = 5;
 constexpr uint8_t kBlobVersionV4 = 4;
 constexpr uint8_t kBlobVersionV3 = 3;
 constexpr size_t kStripBlockV4 = 26;
@@ -38,11 +39,12 @@ inline void decodePhys(const uint8_t *b, PhysicalStripSettings &p) {
   p.layerCount = b[3];
 }
 
-// Layer block (24 bytes): mode, effect, enabled, intensityPct, centerHz(2),
+// Layer block (26 bytes): triggers, effect, enabled, intensityPct, centerHz(2),
 // widthHz(2), thresholdPct, beatSensitivityPct, retriggerMs(2), blobLeds(2),
-// speed(2), fadeMs(2), reverse, loop, retrigger, r, g, b.
+// speed(2), fadeMs(2), reverse, loop, retrigger, r, g, b,
+// motionThresholdPct, spare.
 inline void encodeLayer(const LayerSettings &s, uint8_t *p) {
-  p[0] = s.mode;
+  p[0] = s.triggers;
   p[1] = s.effect;
   p[2] = s.enabled;
   p[3] = s.intensityPct;
@@ -60,10 +62,12 @@ inline void encodeLayer(const LayerSettings &s, uint8_t *p) {
   p[21] = s.r;
   p[22] = s.g;
   p[23] = s.b;
+  p[24] = s.motionThresholdPct;
+  p[25] = 0; // spare, keeps the block a round 26 bytes
 }
 
 inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
-  s.mode = p[0];
+  s.triggers = p[0];
   s.effect = p[1];
   s.enabled = p[2];
   s.intensityPct = p[3];
@@ -81,12 +85,25 @@ inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
   s.r = p[21];
   s.g = p[22];
   s.b = p[23];
+  s.motionThresholdPct = p[24];
+}
+
+// A single old `mode` enum becomes the matching trigger bit.
+inline uint8_t triggersFromMode(uint8_t mode) {
+  switch (mode) {
+  case 1:
+    return kTrigBeat;
+  case 2:
+    return kTrigTap; // older "manual pads" mode
+  default:
+    return kTrigThreshold;
+  }
 }
 
 // v4 strip block -> physical container + layer 0.
 inline void decodeStripV4(const uint8_t *p, PhysicalStripSettings &phys,
                           LayerSettings &l) {
-  l.mode = p[0];
+  l.triggers = triggersFromMode(p[0]);
   l.enabled = p[1];
   phys.ledCount = get16(p + 2);
   l.centerHz = get16(p + 4);
@@ -107,6 +124,7 @@ inline void decodeStripV4(const uint8_t *p, PhysicalStripSettings &phys,
   l.effect = p[25];
   phys.layerCount = 1;
   l.intensityPct = 100;
+  l.motionThresholdPct = 30;
 }
 
 // v3 strip block -> same, but without beatSensitivityPct / effect.
@@ -154,6 +172,41 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
       for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
         decodeLayer(in + n, s.layer[i][l]);
         n += kLayerBlockSize;
+      }
+    }
+  } else if (in[0] == kBlobVersionV5 &&
+             len == kSettingsHeaderSize + kPhysBlockSize * kStripCount +
+                        (size_t)24 * kStripCount * kMaxLayersPerStrip) {
+    size_t n = kSettingsHeaderSize;
+    for (size_t i = 0; i < kStripCount; i++) {
+      decodePhys(in + n, s.phys[i]);
+      n += kPhysBlockSize;
+    }
+    for (size_t i = 0; i < kStripCount; i++) {
+      for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+        // v5 layer block is 24 bytes and byte 0 is the old mode enum.
+        const uint8_t *b = in + n;
+        LayerSettings &d = s.layer[i][l];
+        d.triggers = triggersFromMode(b[0]);
+        d.effect = b[1];
+        d.enabled = b[2];
+        d.intensityPct = b[3];
+        d.centerHz = get16(b + 4);
+        d.widthHz = get16(b + 6);
+        d.thresholdPct = b[8];
+        d.beatSensitivityPct = b[9];
+        d.retriggerMs = get16(b + 10);
+        d.blobLeds = get16(b + 12);
+        d.speed = get16(b + 14);
+        d.fadeMs = get16(b + 16);
+        d.reverse = b[18];
+        d.loop = b[19];
+        d.retrigger = b[20];
+        d.r = b[21];
+        d.g = b[22];
+        d.b = b[23];
+        d.motionThresholdPct = 30;
+        n += 24;
       }
     }
   } else if (in[0] == kBlobVersionV4 &&

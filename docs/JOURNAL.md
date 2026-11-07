@@ -389,6 +389,86 @@ scaled proportionally rather than clamped per channel.
 - Ideas this unlocks: different `fadeMs` per layer to fake reverb, one beat layer plus
   one threshold layer for kick + snare, a slow "bed" flash layer under fast jets.
 
+## 2026-11-07 (evening) — Blending fix, non-exclusive triggers, motion & whip
+
+### 1. Colour blending was broken — two real bugs
+
+Reported as "colour blending is not working very well". Diagnosis in `strip.cpp`:
+
+| Bug | Effect |
+|-----|--------|
+| Gamma applied **per effect** inside `addRing` / `addFill` / `addSparkles`, before accumulation | A 50 %-amplitude blob contributed 22 % of the light, so overlaps did not sum like light; two layers at 0.7 summed as 0.46+0.46 rather than 1.4. |
+| The layer `intensityPct` was folded into `amp` and therefore went through the same `^2.2` | The intensity slider could not balance layers by eye: 50 % showed as ~10 % of the light. |
+
+Fix: layers now accumulate **linear** light; `show()` applies gamma **once**, to the
+merged maximum, then scales the whole RGB vector so the hue ratio survives. The
+weight is compensated by `1/γ` so the slider is perceptually linear.
+
+I first tried a "soft knee" above 1.0 — and the numeric check showed it was a
+*regression* (0.973 at m = 1.2 where the old code gave 1.0, i.e. dimmer). Reverted.
+Worth recording: the knee idea looked obviously right and was wrong; measuring saved it.
+
+Verified numerically: a single blob is bit-identical to before (0.4563 at amp 0.7),
+a doubled same-colour layer goes 0.218 → 1.0, and intensity 100/75/50/25 % now maps
+to 0.456/0.242/0.099/0.022 consistently.
+
+**Invariant:** gamma lives only in `LedStrip::show()`.
+
+### 2. Trigger inputs are now non-exclusive
+
+`StripSettings::mode` (one enum) became `LayerSettings::triggers`, a bitmask:
+
+```
+1 threshold · 2 beat · 4 tap pads · 8 accelerometer · 16 gyroscope
+```
+
+A layer fires on whichever armed source happens first. The GUI shows tickable chips
+(`✓ Threshold`). Pads are gated by the tap bit, so unticking it really removes them
+as a source. BtnA scrolls physical strips (`>` on the LCD), BtnB cycles the trigger
+set of the selected strip's layers; gain is now web-only, Wi-Fi toggle and save moved
+to the long presses.
+
+### 3. Accelerometer, gyroscope and the whip
+
+New [src/motion.h](../src/motion.h) / [src/motion.cpp](../src/motion.cpp): reads the
+internal IMU once per frame. `swing` is `| |a| − 1 g |`, so a stick at rest reads 0
+and a whip reads large; `twist` is `|ω|`.
+
+New `kEffectWhip` (as requested):
+
+* speed scales with swing strength — `0.35 + 2.4·swing/2 g`, i.e. ~2.8× faster for a
+  hard lash than for a gentle one;
+* direction follows the sign of the horizontal acceleration;
+* **colour comes from the swing direction** (`atan2(ay, ax)` → hue), so whipping one
+  way gives one colour and the other way gives another.
+
+Blobs gained an optional per-blob colour (`custom`, `cr/cg/cb`) and `speedScale` so
+the whip can differ from the layer's own colour and speed.
+
+### Storage
+
+Blob **v6** (26-byte layer block, 210 bytes total). v5/v4/v3 migrate automatically;
+an old `mode` enum becomes the matching trigger bit by hand — it is deliberately *not*
+a blind byte copy, because the old byte was an exclusive choice.
+
+### Verified
+
+- Both envs build, no warnings. RAM 28.9 % / 29.3 %, flash 32.5 % / 33.9 %.
+- Blending maths checked on the host (old vs new, table above).
+- Page JS `node --check`ed; browser test against a stateful mock: five trigger chips
+  render with ticks, ticking Accelerometer sent `triggers=11` and revealed the Motion
+  threshold slider, switching to the whip layer showed `accel · whip` with
+  `Motion threshold 25%`, Solo toggled, and the button hint updated.
+- Found a silent patch failure this way: the trigger-card markup replacement had not
+  applied, so `#trigchips` was null and half the cards never built. Replaced it by
+  line number instead of string matching.
+
+### Open
+
+- Hardware: confirm the IMU is enabled on both boards and tune `motionThresholdPct`
+  for real whips; check that a whip does not fire continuously while the stick is
+  carried around (retrigger gap is the only current guard).
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

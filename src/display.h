@@ -24,6 +24,9 @@ public:
 
   void invalidateHud() { lastHudMs_ = 0; }
 
+  // Which physical strip the hardware buttons act on; shown with a caret.
+  void setSelectedStrip(uint8_t i) { selected_ = i; }
+
 private:
   void computeLayout();
   int freqToX(float hz) const;
@@ -32,6 +35,8 @@ private:
   uint16_t stripColor(const Settings &settings, size_t i) const;
   // Index of the first enabled layer of strip i, or 0 when none is on.
   size_t primaryLayer(const Settings &settings, size_t i) const;
+  // One-letter badge for the layer's armed triggers.
+  static char triggerChar(const LayerSettings &s);
 
   void drawSpectrum(const float *bands);
   void drawStripChrome(const float *bands, const Settings &settings);
@@ -59,4 +64,5 @@ private:
   int prevBandCtr_[kStripCount] = {};
   uint32_t prevChrome_[kStripCount] = {};
   uint32_t lastHudMs_ = 0;
+  uint8_t selected_ = 0;
 };

@@ -8,6 +8,7 @@
 #include "config.h"
 #include "display.h"
 #include "layer.h"
+#include "motion.h"
 #include "settings.h"
 #include "strip.h"
 #include "webui.h"
@@ -15,6 +16,7 @@
 namespace {
 
 SpectrumAnalyzer analyzer;
+MotionSensor motion;
 LedStrip strips[kStripCount];
 
 // One engine and one beat detector per LAYER: layers inside the same physical
@@ -26,6 +28,9 @@ Settings settings;
 SettingsStore store;
 WebUi web;
 Display display;
+
+// Physical strip the hardware buttons currently act on.
+uint8_t hwStrip = 0;
 
 uint32_t lastFrameUs = 0;
 uint32_t lastStats = 0;
@@ -90,12 +95,16 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
         analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), dtMs,
         s.beatSensitivityPct);
 
+    // Pads only reach a layer that has the tap trigger armed, so the
+    // checkboxes really do decide what can fire a layer.
+    const bool tapsArmed = (s.triggers & kTrigTap) != 0;
+
     uint8_t padEffect = LayerSettings::kEffectJet;
     const int8_t hold = web.consumeHold(i, l, padEffect);
     if (hold >= 0) {
-      engine.setPadHeld(hold > 0, padEffect);
+      engine.setPadHeld(hold > 0, tapsArmed ? padEffect : (uint8_t)0xFF);
     }
-    if (web.consumeTap(i, l, padEffect)) {
+    if (web.consumeTap(i, l, padEffect) && tapsArmed) {
       engine.triggerEffect(padEffect, s, ps.ledCount);
     }
 
@@ -106,7 +115,8 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
       continue;
     }
 
-    engine.update(level, beat.onBeat, nowMs, dtSec, s, ps.ledCount);
+    engine.update(level, beat.onBeat, motion.state(), nowMs, dtSec, s,
+                  ps.ledCount);
     engine.render(strip, s);
 
     lt.levelPct = (uint8_t)(level * 100.0f + 0.5f);
@@ -126,14 +136,33 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
   tele.strip[i].brightPct = (uint8_t)(strip.peak() * 100.0f + 0.5f);
 }
 
+// Cycles one layer's armed triggers through useful combinations, from the
+// simplest arming to "everything", so a few presses always reach the wanted set.
+uint8_t nextTriggerSet(uint8_t t) {
+  static const uint8_t kCycle[] = {
+      kTrigThreshold,
+      kTrigBeat,
+      kTrigTap,
+      kTrigAccel,
+      kTrigGyro,
+      (uint8_t)(kTrigThreshold | kTrigBeat),
+      (uint8_t)(kTrigAccel | kTrigGyro),
+      kAllTriggers,
+  };
+  for (size_t i = 0; i < sizeof(kCycle); i++) {
+    if (t == kCycle[i]) {
+      return kCycle[(i + 1) % sizeof(kCycle)];
+    }
+  }
+  return kCycle[0];
+}
+
 void handleButtons() {
   if (M5.BtnA.wasClicked()) {
-    // Manual test trigger on every live layer.
-    for (size_t i = 0; i < kStripCount; i++) {
-      for (size_t l = 0; l < settings.phys[i].layerCount; l++) {
-        engines[i][l].trigger(settings.layer[i][l], settings.phys[i].ledCount);
-      }
-    }
+    // Scroll the physically selected strip; BtnB then acts on it.
+    hwStrip = (uint8_t)((hwStrip + 1) % kStripCount);
+    display.setSelectedStrip(hwStrip);
+    Serial.printf("[btn] strip %u selected\n", (unsigned)hwStrip + 1);
   }
 
   if (M5.BtnA.wasHold()) {
@@ -144,11 +173,19 @@ void handleButtons() {
   }
 
   if (M5.BtnB.wasClicked()) {
-    settings.gainDb = (uint8_t)(settings.gainDb + 6);
-    if (settings.gainDb > 18) {
-      settings.gainDb = 0;
+    // Cycle the trigger mode of every live layer on the selected strip.
+    bool any = false;
+    for (size_t l = 0; l < settings.phys[hwStrip].layerCount; l++) {
+      settings.layer[hwStrip][l].triggers =
+          nextTriggerSet(settings.layer[hwStrip][l].triggers);
+      any = true;
     }
-    noteSettingsChanged();
+    if (any) {
+      noteSettingsChanged();
+      Serial.printf("[btn] strip %u triggers -> 0x%02X\n",
+                    (unsigned)hwStrip + 1,
+                    (unsigned)settings.layer[hwStrip][0].triggers);
+    }
   }
 
   if (M5.BtnB.wasHold()) {
@@ -186,6 +223,8 @@ void setup() {
       beats[i][l].reset();
     }
   }
+
+  motion.begin();
 
   if (!analyzer.begin(kSampleRate)) {
     Serial.println("mic init failed");
@@ -231,6 +270,8 @@ void loop() {
   for (size_t i = 0; i < kStripCount; i++) {
     strips[i].setCount(settings.phys[i].ledCount);
   }
+
+  motion.update();
 
   if (!analyzer.update()) {
     // Even without a mic, pace at ~31 fps so pads and test triggers animate.

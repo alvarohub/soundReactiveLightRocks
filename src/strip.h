@@ -24,10 +24,14 @@ public:
   bool ready() const { return ready_; }
 
   void clear();
-  void addRing(float centerPos, float halfWidth, float amp, uint8_t r, uint8_t g,
-               uint8_t b, bool loop = true);
-  void addFill(float amp, uint8_t r, uint8_t g, uint8_t b);
-  void addSparkles(float amp, uint32_t seed, uint8_t r, uint8_t g, uint8_t b);
+  // amp shapes the effect envelope; weight is this layer's share (applied after
+  // gamma, so 0.5 really means half the light). Both are additive: the strip
+  // merges every layer in a linear buffer and gamma-encodes once in show().
+  void addRing(float centerPos, float halfWidth, float amp, float weight,
+               uint8_t r, uint8_t g, uint8_t b, bool loop = true);
+  void addFill(float amp, float weight, uint8_t r, uint8_t g, uint8_t b);
+  void addSparkles(float amp, float weight, uint32_t seed, uint8_t r, uint8_t g,
+                   uint8_t b);
   void show(uint8_t brightnessPct = 100);
 
   // Calibration mode: blacks out the entire strip and lights only LED

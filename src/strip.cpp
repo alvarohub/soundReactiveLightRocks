@@ -117,9 +117,10 @@ void LedStrip::clear() {
   }
 }
 
-void LedStrip::addRing(float centerPos, float halfWidth, float amp, uint8_t r,
-                       uint8_t g, uint8_t b, bool loop) {
-  if (!ready_ || halfWidth <= 0.0f || amp <= 0.0f) {
+void LedStrip::addRing(float centerPos, float halfWidth, float amp,
+                       float weight, uint8_t r, uint8_t g, uint8_t b,
+                       bool loop) {
+  if (!ready_ || halfWidth <= 0.0f || amp <= 0.0f || weight <= 0.0f) {
     return;
   }
 
@@ -164,11 +165,14 @@ void LedStrip::addRing(float centerPos, float halfWidth, float amp, uint8_t r,
       continue;
     }
 
-    // Raised cosine shaped by kRenderGamma on the intensity envelope: keeps the
-    // chosen (r, g, b) hue ratio intact across the entire fade instead of
-    // crushing secondary channels toward zero.
-    const float raw = (0.5f - 0.5f * cosf(kPi * t)) * amp;
-    const float v = powf(raw, kRenderGamma);
+    // Accumulate LINEAR light: the raised cosine envelope times the layer
+    // weight. Gamma is applied once, to the merged result, in show().
+    //
+    // Applying it here instead (as an earlier version did) broke two things:
+    // the weight went through the 2.2 exponent, so a 50 % layer emitted only
+    // 22 %; and two layers at amp 0.7 summed as 0.46+0.46 instead of 1.4, so
+    // overlaps did not add up like light.
+    const float v = (0.5f - 0.5f * cosf(kPi * t)) * amp * weight;
 
     buf_[i][0] += v * cr;
     buf_[i][1] += v * cg;
@@ -187,12 +191,13 @@ void LedStrip::addRing(float centerPos, float halfWidth, float amp, uint8_t r,
   }
 }
 
-void LedStrip::addFill(float amp, uint8_t r, uint8_t g, uint8_t b) {
-  if (!ready_ || amp <= 0.0f) {
+void LedStrip::addFill(float amp, float weight, uint8_t r, uint8_t g,
+                       uint8_t b) {
+  if (!ready_ || amp <= 0.0f || weight <= 0.0f) {
     return;
   }
   const float clamped = amp > 1.0f ? 1.0f : amp;
-  const float v = powf(clamped, kRenderGamma);
+  const float v = clamped * weight; // linear; gamma happens once in show()
   const float vr = v * ((float)r / 255.0f);
   const float vg = v * ((float)g / 255.0f);
   const float vb = v * ((float)b / 255.0f);
@@ -214,13 +219,13 @@ void LedStrip::addFill(float amp, uint8_t r, uint8_t g, uint8_t b) {
   dirty_ = true;
 }
 
-void LedStrip::addSparkles(float amp, uint32_t seed, uint8_t r, uint8_t g,
-                           uint8_t b) {
-  if (!ready_ || amp <= 0.0f) {
+void LedStrip::addSparkles(float amp, float weight, uint32_t seed, uint8_t r,
+                           uint8_t g, uint8_t b) {
+  if (!ready_ || amp <= 0.0f || weight <= 0.0f) {
     return;
   }
   const float clamped = amp > 1.0f ? 1.0f : amp;
-  const float env = powf(clamped, kRenderGamma);
+  const float env = clamped * weight; // linear; gamma happens once in show()
   const float cr = (float)r / 255.0f;
   const float cg = (float)g / 255.0f;
   const float cb = (float)b / 255.0f;
@@ -287,11 +292,17 @@ void LedStrip::show(uint8_t brightnessPct) {
     if (pb > m) {
       m = pb;
     }
-    if (m > 1.0f) {
-      const float inv = 1.0f / m;
-      pr *= inv;
-      pg *= inv;
-      pb *= inv;
+    if (m > 0.0f) {
+      // The one and only gamma step. Applying it to the merged maximum (then
+      // scaling the whole vector by the same factor) keeps the hue ratio intact
+      // while making overlapping layers add up as light. Above 1.0 the max is
+      // pinned at full brightness, so extra light saturates towards white
+      // instead of clipping a single channel.
+      const float g = powf(m > 1.0f ? 1.0f : m, kRenderGamma);
+      const float k = g / m;
+      pr *= k;
+      pg *= k;
+      pb *= k;
     }
     pr *= scale;
     pg *= scale;

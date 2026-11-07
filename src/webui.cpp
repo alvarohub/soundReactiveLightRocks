@@ -55,6 +55,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .seg button.off{background:#2b1d1d;border-color:#6b2b2b;color:#ff9d95}
 .seg button.sel{outline:3px solid #58a6ff;outline-offset:2px}
 .seg.tight button{padding:8px 4px;font-size:.84rem}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 2px}
+.chip{padding:9px 11px;border-radius:9px;border:2px solid #3a424d;background:#21262e;color:#8b949e;font-size:.84rem;font-weight:600;touch-action:manipulation}
+.chip.on{background:#17301e;border-color:#2ea043;color:#7ee787}
+.chip:disabled{opacity:.35}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
 .stats div{background:#21262e;border-radius:9px;padding:8px 4px;text-align:center}
 .stats span{display:block;font-size:.68rem;letter-spacing:.04em;color:#8b949e;text-transform:uppercase}
@@ -146,10 +150,11 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <button id=rst class="btn warn wide">Factory reset</button>
 </div>
 
-<div class=hint style="text-align:center">Short press A: test trigger &middot; hold A: Wi-Fi on/off &middot; B: mic gain</div>
+<div class=hint style="text-align:center">BtnA: next strip &middot; BtnB: cycle triggers &middot; hold A: Wi-Fi &middot; hold B: save</div>
 
 <script>
-var S=0,L=0,ST=null,BUILT=false,SEEDED=false,MODE=0,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0,SOLO=-1;
+var S=0,L=0,ST=null,BUILT=false,SEEDED=false,TRIG=1,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0,SOLO=-1;
+var TB={thr:1,beat:2,tap:4,accel:8,gyro:16};
 var CUR_COL='#ff6a00',WHEEL_BG=null,WX=76,WY=76,WDRAG=false,TDRAG=-1,MSGTMR=0;
 var INFLIGHT=false,POLL_BUSY=false,LAST=null,PTMR=0,AFTER=null,HOLD_TMRS={};
 
@@ -391,22 +396,24 @@ function bindPhysRange(box,list){
 function build(){
  /* ---- triggering conditions (per layer) ---- */
  var tbox=$('trigbox');
- tbox.innerHTML='<div class=ptitle id=ttitle>Trigger input<small id=thint>how this layer fires</small></div>'
-  +'<div class=seg tight><button id=m0>Threshold</button><button id=m1>Auto Beat</button><button id=m2>Manual</button></div>'
+ tbox.innerHTML='<div class=ptitle id=ttitle>Trigger inputs<small id=thint>tick every source that may fire this layer</small></div>'
+  +'<div class=chips id=trigchips></div>'
   +'<div class=row><span id=mtlbl>Band level &amp; threshold</span><b id=mt0>0%</b></div>'
   +'<div class=bar id=bar0><i id=mb0></i><u id=mu0></u></div>'
   +'<div id=trig_beat style="display:none"><div class=row><span>Beat sensitivity</span><b id=beatSensitivityPctv>-</b></div>'
   +'<input type=range id=beatSensitivityPct min=0 max=100 step=1></div>'
+  +'<div id=trig_motion style="display:none"><div class=row><span>Motion threshold</span><b id=motionThresholdPctv>-</b></div>'
+  +'<input type=range id=motionThresholdPct min=0 max=100 step=1></div>'
   +'<div id=trig_freq></div>';
  var bar=$('bar0');
  bar.addEventListener('pointerdown',function(e){
-  if(MODE!==0)return;
+  if(!(TRIG&TB.thr))return;
   e.preventDefault();TDRAG=S;
   if(bar.setPointerCapture){try{bar.setPointerCapture(e.pointerId);}catch(_){}}
   pickThr(e,false);
  });
  bar.addEventListener('pointermove',function(e){
-  if(TDRAG<0||MODE!==0)return;
+  if(TDRAG<0||!(TRIG&TB.thr))return;
   e.preventDefault();pickThr(e,false);
  });
  bar.addEventListener('pointerup',function(e){if(TDRAG<0)return;TDRAG=-1;pickThr(e,true);});
@@ -416,9 +423,21 @@ function build(){
   labels();sendLayer('beatSensitivityPct',$('beatSensitivityPct').value);
  });
  $('beatSensitivityPct').addEventListener('change',flush);
- $('m0').onclick=function(){MODE=0;setMode();refreshTitle();sendLayer('mode',0);flush();};
- $('m1').onclick=function(){MODE=1;setMode();refreshTitle();sendLayer('mode',1);flush();};
- $('m2').onclick=function(){MODE=2;setMode();refreshTitle();sendLayer('mode',2);flush();};
+ var CHIPS=[['thr','Threshold'],['beat','Auto beat'],['tap','Tap pads'],['accel','Accelerometer'],['gyro','Gyroscope']];
+ $('trigchips').innerHTML=CHIPS.map(function(c){
+  return '<button type=button class=chip id=trig_'+c[0]+'>'+c[1]+'</button>';
+ }).join('');
+ CHIPS.forEach(function(c){
+  $('trig_'+c[0]).onclick=function(){
+   TRIG=(TRIG^TB[c[0]]);
+   setTriggers();refreshTitle();
+   sendLayer('triggers',TRIG);flush();
+  };
+ });
+ $('motionThresholdPct').addEventListener('input',function(){
+  labels();sendLayer('motionThresholdPct',$('motionThresholdPct').value);
+ });
+ $('motionThresholdPct').addEventListener('change',flush);
 
  /* ---- display: colour + intensity (layer), brightness (physical) ---- */
  var dbox=$('dispbox');
@@ -445,7 +464,11 @@ function build(){
  /* ---- animation (per layer) ---- */
  var abox=$('animbox');
  abox.innerHTML='<div class=ptitle id=atitle>Effect &amp; motion<small>what this layer draws and how it moves</small></div>'
-  +'<div class=seg tight><button id=ef0>Jet</button><button id=ef1>Flash</button><button id=ef2>Burst</button><button id=ef3>Sparkle</button></div>'
+  +'<div class=chips><button type=button class="chip" id=ef0>Jet</button>'
+  +'<button type=button class="chip" id=ef1>Flash</button>'
+  +'<button type=button class="chip" id=ef2>Burst</button>'
+  +'<button type=button class="chip" id=ef3>Sparkle</button>'
+  +'<button type=button class="chip" id=ef4>Whip</button></div>'
   +'<div class=row><span>Topology</span><b></b></div>'
   +'<div class=seg><button id=lp1>Loop</button><button id=lp0>One-shot</button></div>'
   +'<div class=row><span>Direction</span><b></b></div>'
@@ -454,6 +477,7 @@ function build(){
  $('ef1').onclick=function(){EFF=1;setEff();refreshTitle();sendLayer('effect',1);flush();};
  $('ef2').onclick=function(){EFF=2;setEff();refreshTitle();sendLayer('effect',2);flush();};
  $('ef3').onclick=function(){EFF=3;setEff();refreshTitle();sendLayer('effect',3);flush();};
+ $('ef4').onclick=function(){EFF=4;setEff();refreshTitle();sendLayer('effect',4);flush();};
  $('lp1').onclick=function(){LOOP=1;setLoop();refreshTitle();sendLayer('loop',1);flush();};
  $('lp0').onclick=function(){LOOP=0;setLoop();refreshTitle();sendLayer('loop',0);flush();};
  $('d0').onclick=function(){REV=0;setDir();refreshTitle();sendLayer('reverse',0);flush();};
@@ -529,7 +553,7 @@ function build(){
 
 function dirName(r){return r===2?'ping-pong':(r===1?'reverse':'forward');}
 function modeName(m){return m===2?'manual':(m===1?'auto beat':'threshold');}
-function effName(e){return e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet'));}
+function effName(e){return e===4?'whip':(e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet')));}
 
 function refreshTitle(){
  var c=cur(),p=phys();
@@ -537,7 +561,13 @@ function refreshTitle(){
  var col=colOf(c);
  ['ptitle','ttitle','dtitle','atitle','ctitle'].forEach(function(id){if($(id))$(id).style.borderLeftColor=col;});
  $('colv').textContent=col;
- var trig=MODE===2?'manual':(MODE===1?('beat '+$('beatSensitivityPct').value+'%'):(c.thresholdPct+'% thr'));
+ var tl=[];
+ if(TRIG&TB.thr)tl.push(c.thresholdPct+'% thr');
+ if(TRIG&TB.beat)tl.push('beat '+$('beatSensitivityPct').value+'%');
+ if(TRIG&TB.tap)tl.push('tap');
+ if(TRIG&TB.accel)tl.push('accel');
+ if(TRIG&TB.gyro)tl.push('gyro');
+ var trig=tl.length?tl.join('+'):'no trigger';
  $('ptitle').innerHTML=nameOf(S)+' &middot; Layer '+(L+1)+'<small>'
   +(c.enabled?'on':'off')+' &middot; '+trig+' &middot; '+effName(EFF)
   +' &middot; '+c.intensityPct+'% weight &middot; '+$('speed').value+' LED/s</small>';
@@ -561,26 +591,39 @@ function labels(){
   $('widthHzv').textContent=w+' Hz  ('+Math.max(65,Math.round(cc-w/2))+'-'+Math.min(7600,Math.round(cc+w/2))+')';
  }
  if($('beatSensitivityPctv'))$('beatSensitivityPctv').textContent=$('beatSensitivityPct').value+'%';
+ if($('motionThresholdPctv'))$('motionThresholdPctv').textContent=$('motionThresholdPct').value+'%';
  if($('intensityPctv'))$('intensityPctv').textContent=$('intensityPct').value+'%';
  if($('brightnessPctv'))$('brightnessPctv').textContent=$('brightnessPct').value+'%';
  if($('ledCountv'))$('ledCountv').textContent=$('ledCount').value;
  refreshTitle();
 }
 
-function setMode(){
- $('m0').className=MODE===0?'sel':'';
- $('m1').className=MODE===1?'sel':'';
- $('m2').className=MODE===2?'sel':'';
- $('trig_freq').style.display=MODE===2?'none':'';
- $('trig_beat').style.display=MODE===1?'':'none';
- $('mu0').style.display=MODE===0?'':'none';
- $('bar0').style.cursor=MODE===0?'ew-resize':'default';
- if($('mtlbl'))$('mtlbl').textContent=MODE===1?'Beat pulse & detected tempo':'Band level & threshold';
- if($('thint'))$('thint').textContent=MODE===0
-  ?'drag the white mark to set the level threshold'
-  :(MODE===1?'adaptive onset detector inside this layer\'s band':'microphone ignored — play from the pads');
+function setTriggers(){
+ ['thr','beat','tap','accel','gyro'].forEach(function(k){
+  var b=$('trig_'+k);
+  if(!b)return;
+  var on=(TRIG&TB[k])?1:0;
+  b.className='chip'+(on?' on':'');
+  b.textContent=(on?'\u2713 ':'')+({thr:'Threshold',beat:'Auto beat',tap:'Tap pads',accel:'Accelerometer',gyro:'Gyroscope'})[k];
+ });
+ var hasThr=(TRIG&TB.thr)?1:0, hasBeat=(TRIG&TB.beat)?1:0;
+ var hasMotion=(TRIG&(TB.accel|TB.gyro))?1:0;
+ $('bar0').style.display=hasThr?'':'none';
+ if($('mtlbl'))$('mtlbl').style.display=hasThr?'':'none';
+ if($('mt0'))$('mt0').style.display=hasThr?'':'none';
+ $('mu0').style.display=hasThr?'':'none';
+ $('bar0').style.cursor=hasThr?'ew-resize':'default';
+ $('trig_beat').style.display=hasBeat?'':'none';
+ $('trig_motion').style.display=hasMotion?'':'none';
+ $('trig_freq').style.display=(hasThr||hasBeat)?'':'none';
+ if($('thint')){
+  var n=0;
+  for(var k in TB)if(TRIG&TB[k])n++;
+  $('thint').textContent=n?(n+' source'+(n>1?'s':'')+' armed — fires on whichever happens first')
+                        :'nothing armed: this layer is silent until you tick a source';
+ }
 }
-function setEff(){for(var i=0;i<4;i++)if($('ef'+i))$('ef'+i).className=EFF===i?'sel':'';}
+function setEff(){for(var i=0;i<5;i++)if($('ef'+i))$('ef'+i).className='chip'+(EFF===i?' on':'');}
 function setDir(){$('d0').className=REV===0?'sel':'';$('d1').className=REV===1?'sel':'';$('d2').className=REV===2?'sel':'';}
 function setLoop(){$('lp1').className=LOOP?'sel':'';$('lp0').className=LOOP?'':'sel';}
 function setRetrig(){
@@ -619,17 +662,18 @@ function fillInputs(){
   list.forEach(function(s){if($(s.k)&&c[s.k]!==undefined)$(s.k).value=c[s.k];});
  });
  $('beatSensitivityPct').value=c.beatSensitivityPct;
+ $('motionThresholdPct').value=c.motionThresholdPct;
  $('intensityPct').value=c.intensityPct;
  $('brightnessPct').value=p.brightnessPct;
  $('ledCount').value=p.ledCount;
  $('pwr').checked=!!c.enabled;
  $('gainDb').value=ST.gainDb;
- MODE=c.mode||0;EFF=c.effect||0;REV=c.reverse||0;LOOP=c.loop?1:0;
+ TRIG=c.triggers||0;EFF=c.effect||0;REV=c.reverse||0;LOOP=c.loop?1:0;
  RETRIG=c.retrigger!==undefined?(c.retrigger?1:0):1;
  CALIB=p.calib?1:0;
  SOLO=(p.solo===undefined)?-1:p.solo;
  buildLayerTabs();
- setLayerSel();setMode();setEff();setDir();setLoop();setRetrig();setCalib();setSolo();
+ setLayerSel();setTriggers();setEff();setDir();setLoop();setRetrig();setCalib();setSolo();
  setColorHex(colOf(c));
  labels();
 }
@@ -652,17 +696,12 @@ function live(){
  if(c){
   var col=colOf(c);
   $('mb0').style.background=col;
-  if(MODE===1){
-   $('mb0').style.width=Math.max(c.beatPct||0,c.levelPct||0)+'%';
-   $('mt0').textContent=(c.bpm>0?(c.bpm+' BPM'):'listening…')+' · beat '+(c.beatPct||0)+'% · lvl '+c.levelPct+'%';
-  }else if(MODE===2){
-   $('mb0').style.width=(c.brightPct||0)+'%';
-   $('mt0').textContent='manual · out '+(c.brightPct||0)+'%';
-  }else{
-   $('mb0').style.width=c.levelPct+'%';
-   $('mu0').style.left='calc('+c.thresholdPct+'% - 2px)';
-   $('mt0').textContent='thr '+c.thresholdPct+'% · lvl '+c.levelPct+'% · '+c.blobs+' active';
-  }
+  var lvl=(TRIG&TB.beat)?Math.max(c.beatPct||0,c.levelPct||0):c.levelPct;
+  $('mb0').style.width=lvl+'%';
+  $('mu0').style.left='calc('+c.thresholdPct+'% - 2px)';
+  $('mt0').textContent='lvl '+c.levelPct+'%'
+   +((TRIG&TB.beat)?(' · '+(c.bpm>0?c.bpm+' BPM':'listening')+' · beat '+(c.beatPct||0)+'%'):'')
+   +' · '+c.blobs+' active';
   CALIB=p.calib?1:0;setCalib();setSolo();
  }
  for(var q=0;q<ST.strips.length;q++){
@@ -689,9 +728,11 @@ function live(){
 function layModeName(l){
  if(!l)return '-';
  if(!l.enabled)return 'off';
- if(l.mode===1)return l.bpm>0?(l.bpm+' BPM'):'beat';
- if(l.mode===2)return 'manual';
- return 'thr '+l.thresholdPct+'%';
+ var t=l.triggers||0;
+ if(t&TB.beat)return l.bpm>0?(l.bpm+' BPM'):'beat';
+ if(t&(TB.accel|TB.gyro))return 'motion';
+ if(t&TB.thr)return 'thr '+l.thresholdPct+'%';
+ return 'tap';
 }
 
 var PAD_SIG='';
@@ -846,17 +887,19 @@ String WebUi::stateJson() const {
       const LayerSettings &s = settings_->layer[i][l];
       const LayerTelemetry &lt = pt.layer[l];
       appendf(buf, sizeof(buf), n,
-              "%s{\"mode\":%u,\"effect\":%u,\"enabled\":%u,\"intensityPct\":%u,"
-              "\"centerHz\":%u,\"widthHz\":%u,\"thresholdPct\":%u,"
-              "\"beatSensitivityPct\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
+              "%s{\"triggers\":%u,\"effect\":%u,\"enabled\":%u,"
+              "\"intensityPct\":%u,\"centerHz\":%u,\"widthHz\":%u,"
+              "\"thresholdPct\":%u,\"beatSensitivityPct\":%u,"
+              "\"motionThresholdPct\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
               "\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,\"reverse\":%u,"
               "\"loop\":%u,\"color\":\"%02x%02x%02x\",\"levelPct\":%u,"
               "\"brightPct\":%u,\"blobs\":%u,\"beatPct\":%u,\"bpm\":%u}",
-              l == 0 ? "" : ",", (unsigned)s.mode, (unsigned)s.effect,
+              l == 0 ? "" : ",", (unsigned)s.triggers, (unsigned)s.effect,
               (unsigned)s.enabled, (unsigned)s.intensityPct,
               (unsigned)s.centerHz, (unsigned)s.widthHz,
               (unsigned)s.thresholdPct, (unsigned)s.beatSensitivityPct,
-              (unsigned)s.retrigger, (unsigned)s.retriggerMs,
+              (unsigned)s.motionThresholdPct, (unsigned)s.retrigger,
+              (unsigned)s.retriggerMs,
               (unsigned)s.blobLeds, (unsigned)s.speed, (unsigned)s.fadeMs,
               (unsigned)s.reverse, (unsigned)s.loop, (unsigned)s.r,
               (unsigned)s.g, (unsigned)s.b, (unsigned)lt.levelPct,
@@ -950,8 +993,9 @@ void WebUi::handleParams() {
     if (readIndex("layer", kMaxLayersPerStrip, l)) {
       LayerSettings &s = settings_->layer[p][l];
       edit_[p] = (uint8_t)l;
-      applyArg("mode", &s.mode);
+      applyArg("triggers", &s.triggers);
       applyArg("effect", &s.effect);
+      applyArg("motionThresholdPct", &s.motionThresholdPct);
       applyArg("enabled", &s.enabled);
       applyArg("intensityPct", &s.intensityPct);
       applyArg("centerHz", &s.centerHz);
