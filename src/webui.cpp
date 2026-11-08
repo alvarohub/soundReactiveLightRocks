@@ -200,7 +200,13 @@ function nameOf(i){return 'Strip '+(i+1);}
 /* ---- one request in flight, latest value wins ---- */
 function flush(){
  if(PTMR){clearTimeout(PTMR);PTMR=0;}
- if(INFLIGHT||!LAST)return;
+ if(INFLIGHT)return;
+ if(!LAST){
+  // Nothing to send: run a pending state refresh now, otherwise it waits for a
+  // request that may never come and the page keeps a stale view of the board.
+  var f=AFTER;AFTER=null;if(f)f();
+  return;
+ }
  var url=LAST;LAST=null;
  INFLIGHT=true;
  /* Strict single-in-flight: a follow-up fetch only runs once the params POST
@@ -328,7 +334,13 @@ function buildSelectors(n){
 function buildLayerTabs(){
  var p='',n=layerCount();
  for(var i=0;i<n;i++)p+='<button id=lt'+i+'>Layer '+(i+1)+'</button>';
- $('layertabs').innerHTML=p;
+ var box=$('layertabs');
+ box.innerHTML=p;
+ // A single layer has nothing to choose between, so no pointless tab row.
+ // The count says so in words, otherwise "1 of 4" with no tabs reads as four
+ // layers hiding somewhere.
+ box.style.display=n>1?'':'none';
+ if($('lcv'))$('lcv').textContent=n>1?(n+' of 4'):'1 of 4 \u00b7 single beam';
  for(var j=0;j<n;j++){
   (function(k){$('lt'+k).onclick=function(){flush();L=k;fillInputs();live();};})(j);
  }
@@ -580,14 +592,16 @@ function build(){
  $('addlayer').onclick=function(){
   var n=layerCount();
   if(n>=4){flashMsg('Maximum 4 layers');return;}
-  sendPhys('layerCount',n+1);
-  syncState(function(){L=n;fillInputs();live();});
+  // The new layer is a copy of the one you are looking at, in another colour
+  // and at 60% weight, so it shows up as a second beam straight away.
+  sendPhys('layerAdd',L);
+  syncState(function(){L=layerCount()-1;fillInputs();live();});
  };
  $('remlayer').onclick=function(){
   var n=layerCount();
-  if(n<=1){flashMsg('At least one layer');return;}
-  sendPhys('layerCount',n-1);
-  syncState(function(){if(L>n-2)L=Math.max(0,n-2);fillInputs();live();});
+  if(n<=1){flashMsg('One layer must stay (power it off instead)');return;}
+  sendPhys('layerRemove',L);
+  syncState(function(){if(L>layerCount()-1)L=layerCount()-1;fillInputs();live();});
  };
  $('solobtn').onclick=function(){
   SOLO=(SOLO===L)?-1:L;
@@ -618,9 +632,8 @@ function refreshTitle(){
  $('ptitle').innerHTML=nameOf(S)+' &middot; Layer '+(L+1)+'<small>'
   +(c.enabled?'on':'off')+' &middot; '+trig+' &middot; '+effName(EFF)
   +' &middot; '+c.intensityPct+'% weight &middot; '+$('speed').value+' LED/s</small>';
- $('lcv').textContent=layerCount()+' of 4';
- $('tabhint').textContent=p.ledCount+' LEDs · '+p.brightnessPct+'% output';
-}
+ // lcv is written by buildLayerTabs(), so the count and the tabs never disagree.
+ $('tabhint').textContent=p.ledCount+' LEDs · '+p.brightnessPct+'% output';}
 
 function labels(){
  [TRIGSPEC,ANIMSPEC].forEach(function(list){
@@ -813,6 +826,13 @@ function padSig(s){
  }
  return t;
 }
+/* Layer counts only: the thing that decides how many tabs must exist. */
+function structSig(s){
+ var t='';
+ for(var i=0;i<s.strips.length;i++)t+=s.strips[i].layerCount+',';
+ return t;
+}
+var STRUCT='';
 function apply(s){
  ST=s;
  if(!BUILT&&ST.strips.length){
@@ -822,7 +842,17 @@ function apply(s){
  }
  var sig=padSig(s);
  if(sig!==PAD_SIG){PAD_SIG=sig;buildPads();}
+ // The board can change the layer structure without this page asking: a preset
+ // load, a factory reset, or the other phone. Rebuilding only from the add and
+ // remove buttons left the tabs showing layers that no longer existed (and hid
+ // layers that did), so the structure is derived from the state itself.
+ var restructured=structSig(s)!==STRUCT;
+ if(restructured)STRUCT=structSig(s);
  if(!SEEDED){SEEDED=true;fillInputs();}
+ else if(restructured){
+  if(L>layerCount()-1)L=layerCount()-1;
+  fillInputs();
+ }
  live();
 }
 function post(u,refresh){
@@ -1060,6 +1090,53 @@ void WebUi::applyArg(const char *name, uint16_t *dst) {
   *dst = (uint16_t)constrain(server_.arg(name).toInt(), 0L, 65535L);
 }
 
+void WebUi::addLayer(size_t p, uint8_t from) {
+  PhysicalStripSettings &ps = settings_->phys[p];
+  if (ps.layerCount >= kMaxLayersPerStrip) {
+    return;
+  }
+  const uint8_t srcIndex = from < ps.layerCount ? from : 0;
+  LayerSettings &dst = settings_->layer[p][ps.layerCount];
+  dst = settings_->layer[p][srcIndex];
+  // A copy in another colour at a lower weight reads as a second beam rather
+  // than as a doubling of the first one.
+  const uint8_t r = dst.r;
+  dst.r = dst.b;
+  dst.b = dst.g;
+  dst.g = r;
+  dst.intensityPct = (uint8_t)((dst.intensityPct * 6u) / 10u);
+  edit_[p] = ps.layerCount;
+  ps.layerCount++;
+  clampSettings(*settings_);
+}
+
+void WebUi::removeLayer(size_t p, uint8_t index) {
+  PhysicalStripSettings &ps = settings_->phys[p];
+  if (ps.layerCount <= 1) {
+    return;
+  }
+  const uint8_t last = (uint8_t)(ps.layerCount - 1);
+  if (index > last) {
+    index = last;
+  }
+  for (uint8_t i = index; i < last; i++) {
+    settings_->layer[p][i] = settings_->layer[p][i + 1];
+  }
+  LayerSettings &freed = settings_->layer[p][last];
+  freed = LayerSettings();
+  clampLayer(freed);
+  ps.layerCount = last;
+  // Solo and the pad's edit target are indices, so they have to follow the shift.
+  if (solo_[p] == (int8_t)index) {
+    solo_[p] = -1;
+  } else if (solo_[p] > (int8_t)index) {
+    solo_[p]--;
+  }
+  if (edit_[p] > (uint8_t)(last - 1)) {
+    edit_[p] = (uint8_t)(last - 1);
+  }
+}
+
 void WebUi::handleParams() {
   size_t p = 0;
   if (readIndex("strip", kStripCount, p)) {
@@ -1075,6 +1152,20 @@ void WebUi::handleParams() {
     applyArg("ledCount", &ps.ledCount);
     applyArg("brightnessPct", &ps.brightnessPct);
     applyArg("layerCount", &ps.layerCount);
+
+    // Structure edits are explicit requests rather than arithmetic on the
+    // count, so the page and the board cannot disagree about which slot is
+    // being created or destroyed.
+    if (server_.hasArg("layerAdd")) {
+      const long from = constrain(server_.arg("layerAdd").toInt(), 0L,
+                                  (long)kMaxLayersPerStrip - 1);
+      addLayer(p, (uint8_t)from);
+    }
+    if (server_.hasArg("layerRemove")) {
+      const long idx = constrain(server_.arg("layerRemove").toInt(), 0L,
+                                 (long)kMaxLayersPerStrip - 1);
+      removeLayer(p, (uint8_t)idx);
+    }
 
     // Changing ledCount auto-shows the calibration dot for 3.5 s so the tip of
     // the strip is visible; touching anything else leaves calibration mode.

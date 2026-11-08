@@ -842,6 +842,53 @@ softness on load.
   `brightness → layers`, Display card shows `intensity + softness 65%`, AGC ON.
 - Both envs build clean.
 
+## 2026-11-08 (even later) — Layer tabs that lied, and honest add/remove
+
+### "1 of 4 with no buttons to press"
+
+After deleting layers the page showed `Light layers inside 1 of 4` and an empty tab
+row, with no way to reach the layer that existed.
+
+Two separate mistakes:
+
+1. **The tabs were drawn from the click handlers, not from the state.** `apply()`
+   refilled the inputs only once (`SEEDED`) and the add/remove buttons called
+   `fillInputs()` themselves. But `/api/state` is polled every 600 ms, and several
+   things change `layerCount` without those buttons: loading a preset, a factory
+   reset, the other phone in the room. The tabs then described a structure that no
+   longer existed. `apply()` now compares a structure signature (per-strip layer
+   counts) and refills on any change, and `buildLayerTabs()` owns the count label,
+   so the number and the buttons cannot disagree.
+2. **`Remove` removed the wrong layer.** The page only sent a new `layerCount`, so
+   the board truncated the *last* slot while the user was looking at layer 2. Now the
+   page sends `layerRemove=<index>` (delete the layer you are looking at, shift the
+   rest up) and `layerAdd=<source>` (append a copy). `solo_` and `edit_` are
+   re-based, because they are indices into the same array.
+
+### Making the empty case unambiguous
+
+With one layer the tab row is now hidden and the label reads
+`1 of 4 · single beam`. The old row-renders-one-button-plus-a-`of 4`-denominator
+was read — reasonably — as "four layers are hiding somewhere".
+
+### Adding a layer now produces a visible second beam
+
+The new slot is a copy of the layer being edited with the colour channels rotated
+(r,g,b) → (b,r,g) at 60 % weight. Before, a new layer inherited whatever was left in
+the slot from an earlier session, which was either invisible or a confusing duplicate
+of layer 1.
+
+### Verified (mock device, real page)
+
+| step | result |
+|------|--------|
+| select layer 2, Remove | 3 tabs, layer 2 deleted, `L` stays 1 |
+| Remove down to one | `1 of 4 · single beam`, tab row `display:none`, softness still editable |
+| Add layer | copy of the edited layer, `ff8800 → 00ff88`, 60 %, auto-selected |
+| board changes 4 → 2 → 4 behind the page | poll redraws the tabs both ways, no user action |
+
+Both envs build clean.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

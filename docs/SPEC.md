@@ -350,7 +350,7 @@ driver out of range.
 |-----------|-------|---------|-------|
 | `ledCount` | 1…1000 | 100 | Actual number of LEDs on this strip (shows the calibration dot at `ledCount-1` while tuning) |
 | `brightnessPct` | 1…100 | 100 | Master output ceiling for the whole strip, applied after all layers are merged |
-| `layerCount` | 1…4 | 1 | How many light layers are live inside this strip |
+| `layerCount` | 1…4 | 1 | How many light layers are live inside this strip. There is always at least one (switch it off instead of removing it) |
 | — | — | — | *(no strip-level blur: see `softnessPct` per layer below)* |
 
 ### Per light layer (the glowing object)
@@ -404,13 +404,18 @@ it when the slider is released.
   taps buttons by accident.
 * **Strip 1 / Strip 2** tabs select the physical container; **Layer 1..4** tabs
   inside it select which layer the cards below edit.
-* **+ Add layer** / **Remove** change how many layers that strip holds; **Solo**
-  previews one layer alone.
+* **+ Add layer** duplicates the layer being edited in another colour at 60 %
+  weight and selects it, so a second beam is visible immediately. **Remove**
+  deletes the layer being edited and shifts the rest up; **Solo** previews one
+  layer alone.
+* With a single layer the **tab row is hidden** and the count reads
+  `1 of 4 · single beam`, so an empty row can never be mistaken for hidden
+  layers. The layer cards below keep working normally.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
 * Strip-level controls sit **directly under the Strip 1 / Strip 2 buttons**, before
   the layer list: `Strip brightness`, `Bleed / blur`, then `Light layers inside`.
-* The page header shows the **firmware version** (`LightRocks-1 · 192.168.4.1 · v0.7`)
+* The page header shows the **firmware version** (`LightRocks-1 · 192.168.4.1 · v1.0`)
   so it is obvious whether an upload actually took.
 * **Trigger inputs** are five tickable chips (`Threshold`, `Auto beat`, `Tap pads`,
   `Accelerometer`, `Gyroscope`). Several can be armed at once; only the relevant
@@ -436,6 +441,8 @@ it when the slider is released.
 | GET | `/` | The control page |
 | GET | `/api/state` | Full state + telemetry + preset availability as JSON |
 | POST | `/api/params?strip=<p>&<key>=<value>` | Change the **physical** strip (`ledCount`, `brightnessPct`, `layerCount`, `solo`) |
+| POST | `/api/params?strip=<p>&layerAdd=<l>` | Append a layer copied from layer `l` (no-op at 4) |
+| POST | `/api/params?strip=<p>&layerRemove=<l>` | Delete layer `l` and compact the rest (no-op at 1) |
 | POST | `/api/params?strip=<p>&layer=<l>&<key>=<value>` | Change one **layer** (204, no body) |
 | POST | `/api/params?gainDb=<n>` | Microphone gain |
 | POST | `/api/tap?strip=<p>&layer=<l>&effect=<0..3>&down=<0\|1>` | Fire an effect from a pad; `down=1` also starts/refreshes the hold |

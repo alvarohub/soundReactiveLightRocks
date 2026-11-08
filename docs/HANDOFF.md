@@ -136,6 +136,29 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### The layer tab row is derived from state, never from button handlers (2026-11-08)
+`buildLayerTabs()` used to be called only from `fillInputs()`, which `apply()` ran
+once (a `SEEDED` guard) and the add/remove buttons ran by hand. But `/api/state` is
+polled every 600 ms, so anything that changes `layerCount` outside those two buttons
+— a preset load, a factory reset, the other phone, the board — left the tabs
+describing a structure that no longer existed. The count text said `1 of 4` with no
+tab to press.
+
+`apply()` now compares `structSig(s)` (the per-strip layer counts) and refills the
+inputs whenever it changes, and `buildLayerTabs()` writes the count label itself, so
+the two can never disagree.
+
+**Rule:** anything that draws a *structure* (tabs, pad groups) must be rebuilt from
+`apply()`, not from the handler that happened to cause the change. Handlers are not
+the only source of state.
+
+### Layer creation and deletion are explicit board actions (2026-11-08)
+`layerCount` arithmetic from the page could not say *which* slot to remove, so
+"Remove" always truncated the last layer while the user was looking at another one.
+The page now sends `layerAdd=<source>` / `layerRemove=<index>`, and the board
+duplicates or compacts accordingly (`WebUi::addLayer` / `removeLayer`). `solo_` and
+`edit_` are re-based because they are indices.
+
 ### Legacy blob checks must use the OLD header size (2026-11-08)
 Every migration path compared `len` against `kSettingsHeaderSize`, which grew from 2
 to 3 when `agc` was added. That made every legacy path one byte too long, so old
