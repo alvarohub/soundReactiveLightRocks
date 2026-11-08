@@ -136,6 +136,27 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### The state JSON is built one key per call, and format-checked (2026-11-08)
+`stateJson()` used to be a couple of long `appendf` calls with 28 positional
+arguments. When `softnessPct` was added to the format string the matching argument
+was forgotten, so **every field from there on reported its neighbour's value**, the
+colour was built from telemetry (so it changed several times a second), and
+`thresholdPct` reported `beatSensitivityPct` - which made the threshold control
+spring back to the wrong value and look stuck. Nothing warned: the variadic
+function had no format attribute.
+
+Two permanent guards:
+* `appendf` is declared `__attribute__((format(printf, 4, 5)))` and both envs build
+  with `-Wformat -Wformat-security`. Removing that argument again produces
+  `format '%u' expects a matching 'unsigned int' argument`.
+* every field is emitted as `kvu("key", value)` / `kvd("key", value)` - one key and
+  its value on the same line, so a shift is impossible and a swap is visible.
+
+**Lesson:** a hand-written mock hides emitter bugs. The audit that "passed" was
+comparing the page against JSON I typed by hand, not against what the firmware
+actually formats. The mock is now driven by sentinel values per key (`thresholdPct`
+= 42, `softnessPct` = 7, ...), so a page reading the wrong key shows a mismatch.
+
 ### Adding a layer must not change the light (2026-11-08)
 A new layer used to be a *copy* of the one being edited (rotated colour, 60 %
 weight). That made the strip visibly different before the user had asked for

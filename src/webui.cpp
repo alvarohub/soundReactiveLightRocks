@@ -537,6 +537,7 @@ function build(){
  });
  bar.addEventListener('pointerup',function(e){if(TDRAG<0)return;TDRAG=-1;pickThr(e,true);});
  bar.addEventListener('pointercancel',function(){TDRAG=-1;flush();});
+ bar.addEventListener('lostpointercapture',function(){if(TDRAG>=0){TDRAG=-1;flush();}});
  bindLayerRange($('trig_freq'),TRIGSPEC);
  $('beatSensitivityPct').addEventListener('input',function(){
   labels();sendLayer('beatSensitivityPct',$('beatSensitivityPct').value);
@@ -576,6 +577,9 @@ function build(){
  });
  wh.addEventListener('pointerup',function(e){if(!WDRAG)return;WDRAG=false;pickWheel(e,true);});
  wh.addEventListener('pointercancel',function(){WDRAG=false;flush();});
+ // A capture that is lost without a pointerup used to leave the drag flag set,
+ // and then ANY pointer move over the wheel recoloured the layer by itself.
+ wh.addEventListener('lostpointercapture',function(){if(WDRAG){WDRAG=false;flush();}});
  bindLayerRange($('spanel'),[
   {k:'softnessPct',n:'Softness (blur of the edges)',min:0,max:100,st:1,u:'%'}
  ]);
@@ -1003,6 +1007,13 @@ setInterval(poll,600);
 </body>
 </html>)PAGE";
 
+// printf-checked on purpose: the state JSON is written with positional
+// arguments, and one missing value silently shifts every field after it (which
+// made the whole control page show its neighbour's numbers). With this
+// attribute the compiler verifies every call site instead.
+#if defined(__GNUC__)
+__attribute__((format(printf, 4, 5)))
+#endif
 void appendf(char *buf, size_t cap, size_t &n, const char *fmt, ...) {
   if (n + 1 >= cap) {
     return;
@@ -1087,58 +1098,118 @@ String WebUi::stateJson() const {
   buf[0] = '\0';
   const uint32_t nowMs = millis();
 
-  appendf(buf, sizeof(buf), n,
-          "{\"ssid\":\"%s\",\"ver\":\"%s\",\"gainDb\":%d,\"agc\":%u,"
-          "\"strips\":[",
-          kSsid, kFirmwareVersion, (int)settings_->gainDb,
-          (unsigned)settings_->agc);
+  // One key per call, with its value right beside it. A single long format
+  // string with positional arguments means one missing value silently shifts
+  // every field after it - which is exactly what happened once: the page showed
+  // each control's neighbour, the colour came from telemetry (so it danced) and
+  // the threshold could not be moved. Named calls cannot shift.
+  const auto kvu = [&](const char *key, unsigned v) {
+    appendf(buf, sizeof(buf), n, "\"%s\":%u", key, v);
+  };
+  const auto kvd = [&](const char *key, int v) {
+    appendf(buf, sizeof(buf), n, "\"%s\":%d", key, v);
+  };
+  const auto comma = [&]() { appendf(buf, sizeof(buf), n, ","); };
+
+  appendf(buf, sizeof(buf), n, "{\"ssid\":\"%s\",\"ver\":\"%s\",", kSsid,
+          kFirmwareVersion);
+  kvd("gainDb", (int)settings_->gainDb);
+  comma();
+  kvu("agc", (unsigned)settings_->agc);
+  appendf(buf, sizeof(buf), n, ",\"strips\":[");
 
   for (size_t i = 0; i < kStripCount; i++) {
     const PhysicalStripSettings &p = settings_->phys[i];
     const PhysicalTelemetry &pt = tele_.strip[i];
-    appendf(buf, sizeof(buf), n,
-            "%s{\"ledCount\":%u,\"brightnessPct\":%u,\"layerCount\":%u,"
-            "\"brightPct\":%u,\"solo\":%d,\"calib\":%u,\"layers\":[",
-            i == 0 ? "" : ",", (unsigned)p.ledCount, (unsigned)p.brightnessPct,
-            (unsigned)p.layerCount, (unsigned)pt.brightPct, (int)soloLayer(i),
-            isCalibrating(i, nowMs) ? 1u : 0u);
+    appendf(buf, sizeof(buf), n, "%s{", i == 0 ? "" : ",");
+    kvu("ledCount", p.ledCount);
+    comma();
+    kvu("brightnessPct", p.brightnessPct);
+    comma();
+    kvu("layerCount", p.layerCount);
+    comma();
+    kvu("brightPct", pt.brightPct);
+    comma();
+    kvd("solo", (int)soloLayer(i));
+    comma();
+    kvu("calib", isCalibrating(i, nowMs) ? 1u : 0u);
+    appendf(buf, sizeof(buf), n, ",\"layers\":[");
 
     for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
       const LayerSettings &s = settings_->layer[i][l];
       const LayerTelemetry &lt = pt.layer[l];
-      appendf(buf, sizeof(buf), n,
-              "%s{\"triggers\":%u,\"effect\":%u,\"enabled\":%u,"
-              "\"intensityPct\":%u,\"softnessPct\":%u,\"centerHz\":%u,"
-              "\"widthHz\":%u,"
-              "\"thresholdPct\":%u,\"beatSensitivityPct\":%u,"
-              "\"motionThresholdPct\":%u,\"lfoPeriodMs\":%u,\"attackMs\":%u,"
-              "\"releaseMs\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
-              "\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,\"reverse\":%u,"
-              "\"loop\":%u,\"color\":\"%02x%02x%02x\",\"levelPct\":%u,"
-              "\"brightPct\":%u,\"blobs\":%u,\"beatPct\":%u,\"bpm\":%u}",
-              l == 0 ? "" : ",", (unsigned)s.triggers, (unsigned)s.effect,
-              (unsigned)s.enabled, (unsigned)s.intensityPct,
-              (unsigned)s.centerHz, (unsigned)s.widthHz,
-              (unsigned)s.thresholdPct, (unsigned)s.beatSensitivityPct,
-              (unsigned)s.motionThresholdPct, (unsigned)s.lfoPeriodMs,
-              (unsigned)s.attackMs, (unsigned)s.releaseMs, (unsigned)s.retrigger,
-              (unsigned)s.retriggerMs,
-              (unsigned)s.blobLeds, (unsigned)s.speed, (unsigned)s.fadeMs,
-              (unsigned)s.reverse, (unsigned)s.loop, (unsigned)s.r,
-              (unsigned)s.g, (unsigned)s.b, (unsigned)lt.levelPct,
-              (unsigned)lt.brightPct, (unsigned)lt.blobs,
-              (unsigned)lt.beatPct, (unsigned)lt.bpm);
+      appendf(buf, sizeof(buf), n, "%s{", l == 0 ? "" : ",");
+      kvu("triggers", s.triggers);
+      comma();
+      kvu("effect", s.effect);
+      comma();
+      kvu("enabled", s.enabled);
+      comma();
+      kvu("intensityPct", s.intensityPct);
+      comma();
+      kvu("softnessPct", s.softnessPct);
+      comma();
+      kvu("centerHz", s.centerHz);
+      comma();
+      kvu("widthHz", s.widthHz);
+      comma();
+      kvu("thresholdPct", s.thresholdPct);
+      comma();
+      kvu("beatSensitivityPct", s.beatSensitivityPct);
+      comma();
+      kvu("motionThresholdPct", s.motionThresholdPct);
+      comma();
+      kvu("lfoPeriodMs", s.lfoPeriodMs);
+      comma();
+      kvu("attackMs", s.attackMs);
+      comma();
+      kvu("releaseMs", s.releaseMs);
+      comma();
+      kvu("retrigger", s.retrigger);
+      comma();
+      kvu("retriggerMs", s.retriggerMs);
+      comma();
+      kvu("blobLeds", s.blobLeds);
+      comma();
+      kvu("speed", s.speed);
+      comma();
+      kvu("fadeMs", s.fadeMs);
+      comma();
+      kvu("reverse", s.reverse);
+      comma();
+      kvu("loop", s.loop);
+      appendf(buf, sizeof(buf), n, ",\"color\":\"%02x%02x%02x\"",
+              (unsigned)s.r, (unsigned)s.g, (unsigned)s.b);
+      comma();
+      kvu("levelPct", lt.levelPct);
+      comma();
+      kvu("brightPct", lt.brightPct);
+      comma();
+      kvu("blobs", lt.blobs);
+      comma();
+      kvu("beatPct", lt.beatPct);
+      comma();
+      kvu("bpm", lt.bpm);
+      appendf(buf, sizeof(buf), n, "}");
     }
     appendf(buf, sizeof(buf), n, "]}");
   }
 
-  appendf(buf, sizeof(buf), n,
-          "],\"levelPct\":%u,\"dbfs\":%d,\"peakHz\":%u,\"unsaved\":%u,"
-          "\"hasPreset0\":%u,\"hasPreset1\":%u,\"hasPreset2\":%u}",
-          (unsigned)tele_.levelPct, (int)tele_.dbfs, (unsigned)tele_.peakHz,
-          unsaved_ ? 1u : 0u, store_ && store_->hasPreset(0) ? 1u : 0u,
-          store_ && store_->hasPreset(1) ? 1u : 0u,
-          store_ && store_->hasPreset(2) ? 1u : 0u);
+  appendf(buf, sizeof(buf), n, "],");
+  kvu("levelPct", tele_.levelPct);
+  comma();
+  kvd("dbfs", (int)tele_.dbfs);
+  comma();
+  kvu("peakHz", tele_.peakHz);
+  comma();
+  kvu("unsaved", unsaved_ ? 1u : 0u);
+  comma();
+  kvu("hasPreset0", store_ && store_->hasPreset(0) ? 1u : 0u);
+  comma();
+  kvu("hasPreset1", store_ && store_->hasPreset(1) ? 1u : 0u);
+  comma();
+  kvu("hasPreset2", store_ && store_->hasPreset(2) ? 1u : 0u);
+  appendf(buf, sizeof(buf), n, "}");
 
   return String(buf);
 }

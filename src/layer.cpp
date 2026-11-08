@@ -117,14 +117,25 @@ void LayerEngine::spawnWhip(const LayerSettings &s, uint16_t ledCount) {
   b.pos = dir > 0 ? 0.0f : (ledCount > 1 ? (float)(ledCount - 1) : 0.0f);
   b.prevPos = b.pos;
   b.custom = 1;
-  hueToRgb(motion_.hue(), b.cr, b.cg, b.cb);
+  // The whip TINTS the layer's own colour with the direction of the swing; it
+  // never replaces it. The base colour lives in the settings and is not written
+  // here, so going back to another trigger finds the layer exactly as it was -
+  // and the phone's colour wheel keeps showing the colour the user chose.
+  {
+    uint8_t mr, mg, mb;
+    hueToRgb(motion_.hue(), mr, mg, mb);
+    const float t = swing > 1.5f ? 1.0f : (swing > 0.0f ? swing / 1.5f : 0.0f);
+    const float mix = 0.25f + 0.35f * t; // 25 % at a nudge, 60 % at a hard whip
+    b.cr = (uint8_t)((float)s.r + ((float)mr - (float)s.r) * mix);
+    b.cg = (uint8_t)((float)s.g + ((float)mg - (float)s.g) * mix);
+    b.cb = (uint8_t)((float)s.b + ((float)mb - (float)s.b) * mix);
+  }
 
   // Speed scales with how hard the stick was whipped. The magnitude is baked
   // into a per-blob "speed" by using a short fade instead: the blob keeps the
   // layer speed, but faster whips get a shorter effective trail. To make the
   // travel speed itself depend on the swing, store it on the blob.
   b.speedScale = 0.35f + 2.4f * (swing > 2.0f ? 1.0f : swing / 2.0f);
-  (void)s;
 }
 
 void LayerEngine::triggerEffect(uint8_t effect, const LayerSettings &s,

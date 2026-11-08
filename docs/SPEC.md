@@ -264,6 +264,9 @@ first. The GUI shows them as tickable chips.
 | `kTrigLfo` | 32 | a free-running metronome, independent of everything | `lfoPeriodMs` |
 
 * `triggers = 0` means the layer is silent: no source can fire it.
+* The whip **tints** the layer's own colour by the direction of the swing (25 % at a
+  nudge, 60 % at a hard whip); it never replaces it, so the colour wheel keeps
+  showing the colour that was chosen and other triggers are unaffected.
 * The pad path is gated by `kTrigTap`, so unticking it really does stop pads from
   reaching that layer; BtnB selects the next strip and BtnA cycles the trigger set.
 * Motion is read once per frame from the on-board IMU. `swing` is the magnitude of

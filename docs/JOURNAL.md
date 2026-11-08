@@ -1008,6 +1008,55 @@ HUD 109..116, hint 123..130.
 `BtnA` (front) now cycles the trigger set, `BtnB` (side) changes strip; the hold
 actions are unchanged (A = Wi-Fi, B = save). The banner and the page footer say so.
 
+## 2026-11-08 — The page showed its neighbour's numbers (one missing argument)
+
+Symptom: "all the parameters seem to DANCE for no reason", the colour wheel changed
+by itself, and the threshold could not be moved.
+
+Cause: `stateJson()` had 28 positional arguments to one `appendf` and, when
+`softnessPct` was added, the value was not. From that point every field reported its
+neighbour:
+
+| key in the JSON | value it actually carried |
+|-----------------|---------------------------|
+| `softnessPct` | `centerHz` |
+| `centerHz` | `widthHz` |
+| `thresholdPct` | `beatSensitivityPct` |
+| `color` | `levelPct`, `brightPct`, `blobs` (telemetry - changes every frame) |
+| `blobs`, `beatPct`, `bpm` | whatever was on the stack |
+
+So the sliders walked along the wrong values ("dancing"), the wheel colour was
+literally the live level (hence "the colour keeps changing", and it kept changing
+after switching back to threshold), and dragging the threshold worked on the board
+but the marker was repainted from `beatSensitivityPct` on the next poll, so it
+looked stuck.
+
+Fix: the missing argument, plus two guards that make the class impossible to repeat:
+`appendf` now carries a `printf` format attribute (`-Wformat` in both envs catches a
+missing or wrongly-typed argument at compile time), and every field is written as
+`kvu("key", value)` so the key and its value sit on one line.
+
+Whip colour: it used to *replace* the layer colour with a fully saturated hue from
+the accelerometer direction, which made the layer look like it had lost its colour.
+It now **tints** the base colour (25 % at a nudge, 60 % at a hard whip). The base
+colour lives only in the settings and is never written by the effect, so switching
+back to another trigger finds the layer exactly as it was.
+
+Also hardened: `lostpointercapture` on the colour wheel and the level bar. A drag
+whose `pointerup` never arrived left the flag set, and then any pointer move over
+the wheel recoloured the layer by itself.
+
+### Verification
+
+* Compiler: with the argument removed on purpose, `-Wformat` reports
+  `format '%u' expects a matching 'unsigned int' argument`; with it restored, clean.
+* Key/value pairs parsed out of the source: 32 pairs, key == field for all.
+* Page against a mock with a unique sentinel per key: 24 controls, all correct
+  (threshold marker at `calc(42% - 2px)`, colour `#112233`, level line
+  `lvl 55% · 123 BPM · beat 33% · 2 active`, HUD `71% · -23 dB · 880 Hz`).
+* Threshold drag replayed with real pointer events: posts `thresholdPct=62`,
+  `TDRAG` returns to -1, no latched state.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:
