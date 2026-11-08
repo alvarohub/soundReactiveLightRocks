@@ -971,6 +971,43 @@ Results after the fixes, against a mock device that clamps like the firmware:
 | after reload | none | none |
 | after a stalled POST + recovery | none | none (converges in one poll) |
 
+## 2026-11-08 — Layer defaults, per-layer spectrum on the LCD, buttons swapped
+
+### "The wheel shows one colour, the blob is another"
+
+A new layer was created as a **copy of the one being edited** with rotated
+channels. If the state refresh after the add was missed (which the old request
+pipeline made likely - see the entry above), the page still pointed at the
+previous layer, so the wheel showed that layer's colour while the strip drew the
+new one.
+
+Two changes: the state refresh is now reliable, and a new layer is a **fresh slot**
+- `enabled = 0`, plain threshold-driven jet, its own palette colour, its own band
+(`150 Hz + 250 Hz x slot`). Nothing on the strip changes until the user switches it
+on, so there is nothing to disagree about. The web UI says so ("Layer 2 added - it
+is off, switch it on") and the tab is drawn at 45 % opacity.
+
+### The LCD now shows layers, not just strips
+
+`BtnB` (side) selects a physical strip and the screen follows it:
+
+```
+S1  2L                                              out 47%
+|spectrum bars, 30 bands, x 9..217|                        |
+S |====band window, filled by level====|                 (o)
+- |====and its window, grey, layer off====|              ( )
+```
+
+Each layer row spans exactly its `centerHz ± widthHz/2` window **on the same x
+axis as the bars**, so a layer and its bars are the same width. The gutter holds
+the trigger letter (`S` threshold, `B` beat, `A` accel/gyro, `M` tap, `-` off), the
+fill is that band's level, and the right-hand dot lights while the layer is
+emitting (`blobs > 0`). Geometry checked for 240x135: bars 13..62, rows 67..102,
+HUD 109..116, hint 123..130.
+
+`BtnA` (front) now cycles the trigger set, `BtnB` (side) changes strip; the hold
+actions are unchanged (A = Wi-Fi, B = save). The banner and the page footer say so.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

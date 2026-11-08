@@ -6,7 +6,7 @@
 
 namespace {
 
-constexpr int kMeterH = 7;
+constexpr int kRowBarH = 5;  // the thin bar inside a layer row
 
 constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
@@ -32,19 +32,21 @@ void Display::computeLayout() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
 
-  bandWidth_ = w / (int)SpectrumAnalyzer::kBands;
-  barWidth_ = bandWidth_ - 1;
-
-  barTop_ = 14;
-  barBottom_ = h - 62;
-  for (size_t i = 0; i < kStripCount; i++) {
-    bandRowY_[i] = barBottom_ + 3 + (int)i * 3;
-    meterY_[i] = barBottom_ + 11 + (int)i * 11;
+  // The trigger letter of each layer row lives in the left gutter, so the bars
+  // and the rows share one frequency axis and line up vertically.
+  axisX0_ = 9;
+  bandWidth_ = (w - axisX0_ - 4) / (int)SpectrumAnalyzer::kBands;
+  if (bandWidth_ < 4) {
+    bandWidth_ = 4;
   }
-  meterX_ = 15;
-  meterWidth_ = w - meterX_ - 3;
-  hudY_ = h - 24;
+  barWidth_ = bandWidth_ - 1;
+  axisX1_ = axisX0_ + bandWidth_ * (int)SpectrumAnalyzer::kBands - 2;
+
   hintY_ = h - 12;
+  hudY_ = hintY_ - 14;
+  rowY0_ = hudY_ - 6 - rowH_ * (int)kMaxLayersPerStrip;
+  barTop_ = 13;
+  barBottom_ = rowY0_ - 5;
 }
 
 size_t Display::primaryLayer(const Settings &settings, size_t i) const {
@@ -100,17 +102,16 @@ uint16_t Display::barColor(int y) const {
 }
 
 int Display::freqToX(float hz) const {
-  const int maxX = (int)SpectrumAnalyzer::kBands * bandWidth_ - 2;
   if (hz <= kAudioMinHz) {
-    return 0;
+    return axisX0_;
   }
   if (hz >= kAudioMaxHz) {
-    return maxX;
+    return axisX1_;
   }
   const float ratio = kAudioMaxHz / kAudioMinHz;
   const float t = logf(hz / kAudioMinHz) / logf(ratio);
-  const int x = (int)(t * (float)maxX + 0.5f);
-  return x < 0 ? 0 : (x > maxX ? maxX : x);
+  const int x = axisX0_ + (int)(t * (float)(axisX1_ - axisX0_) + 0.5f);
+  return x < axisX0_ ? axisX0_ : (x > axisX1_ ? axisX1_ : x);
 }
 
 void Display::drawSpectrum(const float *bands) {
@@ -120,7 +121,7 @@ void Display::drawSpectrum(const float *bands) {
     if (h > span) {
       h = span;
     }
-    const int x = (int)b * bandWidth_;
+    const int x = axisX0_ + (int)b * bandWidth_;
     if (prevBar_[b] < 0) {
       M5.Display.fillRect(x, barTop_, barWidth_, span, kBlack);
       if (h > 0) {
@@ -138,15 +139,62 @@ void Display::drawSpectrum(const float *bands) {
   }
 }
 
-void Display::drawStripChrome(const float *bands, const Settings &settings) {
-  bool changed = false;
-  int xLo[kStripCount] = {};
-  int xHi[kStripCount] = {};
-  int xCtr[kStripCount] = {};
+void Display::drawHeader(const Settings &settings, const Telemetry &tele) {
+  const size_t sel = selected_ < kStripCount ? selected_ : 0;
+  const uint16_t col = stripColor(settings, sel);
 
-  for (size_t i = 0; i < kStripCount; i++) {
-    // The rectangle shows where the strip's dominant layer listens.
-    const LayerSettings &s = settings.layer[i][primaryLayer(settings, i)];
+  char left[24];
+  char right[16];
+  snprintf(left, sizeof(left), "S%u  %uL", (unsigned)sel + 1,
+           (unsigned)settings.phys[sel].layerCount);
+  snprintf(right, sizeof(right), "out %u%%",
+           (unsigned)tele.strip[sel].brightPct);
+  if (strcmp(left, prevHeadLeft_) == 0 && strcmp(right, prevHeadRight_) == 0 &&
+      (int)col == prevHeadCol_) {
+    return;
+  }
+  snprintf(prevHeadLeft_, sizeof(prevHeadLeft_), "%s", left);
+  snprintf(prevHeadRight_, sizeof(prevHeadRight_), "%s", right);
+  prevHeadCol_ = (int)col;
+
+  const int w = (int)M5.Display.width();
+  M5.Display.fillRect(0, 0, w, barTop_ - 2, kBlack);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(col, kBlack);
+  M5.Display.setCursor(2, 1);
+  M5.Display.print(left);
+  M5.Display.setTextColor(kWhite, kBlack);
+  const int rx = w - (int)M5.Display.textWidth(right) - 2;
+  M5.Display.setCursor(rx > 60 ? rx : 60, 1);
+  M5.Display.print(right);
+}
+
+void Display::drawLayerRows(const Settings &settings, const Telemetry &tele) {
+  const size_t sel = selected_ < kStripCount ? selected_ : 0;
+  const uint8_t count = settings.phys[sel].layerCount;
+  const int w = (int)M5.Display.width();
+
+  // A strip switch or a changed layer count invalidates every row.
+  if (count != prevLayers_) {
+    M5.Display.fillRect(0, rowY0_, w, rowH_ * (int)kMaxLayersPerStrip, kBlack);
+    for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+      prevLo_[l] = -1;
+      prevHi_[l] = -1;
+      prevFill_[l] = -1;
+      prevCol_[l] = -1;
+      prevDot_[l] = -1;
+      prevCh_[l] = -1;
+    }
+    prevLayers_ = count;
+  }
+
+  for (size_t l = 0; l < count && l < kMaxLayersPerStrip; l++) {
+    const LayerSettings &s = settings.layer[sel][l];
+    const LayerTelemetry &lt = tele.strip[sel].layer[l];
+    const int y = rowY0_ + (int)l * rowH_;
+
+    // The row covers exactly the band this layer listens to, on the same axis
+    // as the spectrum above, so a layer and its bars are the same width.
     float lo = (float)s.centerHz - (float)s.widthHz * 0.5f;
     float hi = (float)s.centerHz + (float)s.widthHz * 0.5f;
     if (lo < kAudioMinHz) {
@@ -155,103 +203,54 @@ void Display::drawStripChrome(const float *bands, const Settings &settings) {
     if (hi > kAudioMaxHz) {
       hi = kAudioMaxHz;
     }
-
-    xLo[i] = freqToX(lo);
-    xHi[i] = freqToX(hi);
-    if (xHi[i] < xLo[i] + 2) {
-      xHi[i] = xLo[i] + 2;
+    const int xLo = freqToX(lo);
+    int xHi = freqToX(hi);
+    if (xHi < xLo + 3) {
+      xHi = xLo + 3;
     }
-    xCtr[i] = freqToX((float)s.centerHz);
 
-    const uint32_t key = ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) |
-                         (uint32_t)s.b | ((uint32_t)s.enabled << 28);
-    if (xLo[i] != prevBandLo_[i] || xHi[i] != prevBandHi_[i] ||
-        xCtr[i] != prevBandCtr_[i] || key != prevChrome_[i]) {
-      if (prevBandLo_[i] >= 0 && prevBandHi_[i] >= prevBandLo_[i]) {
-        M5.Display.drawRect(prevBandLo_[i], barTop_,
-                            prevBandHi_[i] - prevBandLo_[i] + 1,
-                            barBottom_ - barTop_ + 1, kBlack);
-      }
-      prevBandLo_[i] = xLo[i];
-      prevBandHi_[i] = xHi[i];
-      prevBandCtr_[i] = xCtr[i];
-      prevChrome_[i] = key;
-      changed = true;
-    }
-  }
+    const uint16_t col = s.enabled ? rgb565(s.r, s.g, s.b) : kGrey;
+    const int span = xHi - xLo + 1;
+    const uint8_t lvl = lt.levelPct > 100 ? 100 : lt.levelPct;
+    const int fill = (int)((long)span * (long)lvl / 100);
+    // The dot is the trigger indicator: on while this layer is actually
+    // emitting something, dark when it is quiet or switched off.
+    const int dot = (s.enabled && lt.blobs > 0) ? 1 : 0;
+    const int ch = triggerChar(s);
 
-  if (changed) {
-    M5.Display.fillRect(0, barTop_ - 7, M5.Display.width(), 7, kBlack);
-    for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
-      prevBar_[b] = -1;
-    }
-    for (size_t i = 0; i < kStripCount; i++) {
-      // Meter label: trigger input of the dominant layer + layer count when
-      // the container holds more than one.
-      const size_t l = primaryLayer(settings, i);
-      const LayerSettings &s = settings.layer[i][l];
-      const char prefix = triggerChar(s);
-      const uint8_t layers = settings.phys[i].layerCount;
+    if (xLo != prevLo_[l] || xHi != prevHi_[l] || (int)col != prevCol_[l] ||
+        ch != prevCh_[l]) {
+      M5.Display.fillRect(0, y, w, rowH_ - 1, kBlack);
       M5.Display.setTextSize(1);
-      M5.Display.setTextColor(stripColor(settings, i), kBlack);
-      M5.Display.setCursor(2, meterY_[i]);
-      // ">S1.2" = selected strip 1, threshold armed, 2 layers inside.
-      if (layers > 1) {
-        M5.Display.printf("%c%c%u.%u", i == selected_ ? '>' : ' ', prefix,
-                          (unsigned)i + 1, (unsigned)layers);
-      } else {
-        M5.Display.printf("%c%c%u", i == selected_ ? '>' : ' ', prefix,
-                          (unsigned)i + 1);
+      M5.Display.setTextColor(col, kBlack);
+      M5.Display.setCursor(1, y);
+      M5.Display.print((char)ch);
+      M5.Display.fillRect(xLo, y + 2, span, kRowBarH, kTrack);
+      if (fill > 0) {
+        M5.Display.fillRect(xLo, y + 2, fill, kRowBarH, col);
       }
-    }
-  }
-
-  drawSpectrum(bands);
-
-  for (size_t i = 0; i < kStripCount; i++) {
-    const uint16_t col = stripColor(settings, i);
-    M5.Display.drawRect(xLo[i], barTop_, xHi[i] - xLo[i] + 1,
-                        barBottom_ - barTop_ + 1, col);
-    M5.Display.fillTriangle(xCtr[i] - 3, barTop_ - 6, xCtr[i] + 3, barTop_ - 6,
-                            xCtr[i], barTop_ - 1, col);
-    if (changed) {
-      const int y = bandRowY_[i];
-      M5.Display.fillRect(0, y, M5.Display.width(), 2, kBlack);
-      M5.Display.fillRect(xLo[i], y, xHi[i] - xLo[i] + 1, 2, col);
-    }
-  }
-}
-
-void Display::drawMeters(const Telemetry &tele, const Settings &settings) {
-  for (size_t i = 0; i < kStripCount; i++) {
-    // The meter shows the merged output of the whole physical strip.
-    const uint8_t pct = tele.strip[i].brightPct;
-    const int q = pct / 2;
-
-    // A threshold tick only means something when the dominant layer uses the
-    // threshold input.
-    const LayerSettings &s = settings.layer[i][primaryLayer(settings, i)];
-    const int thrQ =
-        (s.enabled && (s.triggers & kTrigThreshold)) ? (s.thresholdPct / 2) : -1;
-    const uint32_t key = ((uint32_t)s.r << 16) | ((uint32_t)s.g << 8) |
-                         (uint32_t)s.b | ((uint32_t)s.enabled << 28);
-    if (q == prevMeterQ_[i] && thrQ == prevThrQ_[i] &&
-        key == prevMeterColor_[i]) {
+      M5.Display.fillRect(w - 6, y + 2, 5, 5, dot ? col : kTrack);
+      prevLo_[l] = xLo;
+      prevHi_[l] = xHi;
+      prevCol_[l] = (int)col;
+      prevCh_[l] = ch;
+      prevFill_[l] = fill;
+      prevDot_[l] = dot;
       continue;
     }
-    prevMeterQ_[i] = q;
-    prevThrQ_[i] = thrQ;
-    prevMeterColor_[i] = key;
 
-    const int y = meterY_[i];
-    const int fill = meterWidth_ * q / 50;
-    M5.Display.fillRect(meterX_, y, meterWidth_, kMeterH, kTrack);
-    if (fill > 0) {
-      M5.Display.fillRect(meterX_, y, fill, kMeterH, stripColor(settings, i));
+    const int pf = prevFill_[l] < 0 ? 0 : prevFill_[l];
+    if (fill != pf) {
+      if (fill > pf) {
+        M5.Display.fillRect(xLo + pf, y + 2, fill - pf, kRowBarH, col);
+      } else {
+        M5.Display.fillRect(xLo + fill, y + 2, pf - fill, kRowBarH, kTrack);
+      }
+      prevFill_[l] = fill;
     }
-    if (thrQ >= 0) {
-      const int tick = meterX_ + meterWidth_ * thrQ / 50;
-      M5.Display.fillRect(tick, y - 1, 2, kMeterH + 2, kWhite);
+    if (dot != prevDot_[l]) {
+      M5.Display.fillRect(w - 6, y + 2, 5, 5, dot ? col : kTrack);
+      prevDot_[l] = dot;
     }
   }
 }
@@ -335,35 +334,45 @@ void Display::showBanner(const char *ssid, const char *password,
   M5.Display.printf("strip 1 on G%d, strip 2 on G%d", kStripPins[0],
                     kStripPins[kStripCount - 1]);
   M5.Display.setCursor(4, 90);
-  M5.Display.print("A test trigger  hold: wifi");
+  M5.Display.print("A cycle triggers  hold: wifi");
   M5.Display.setCursor(4, 102);
-  M5.Display.print("B mic gain      hold: save");
+  M5.Display.print("B next strip      hold: save");
 }
 
 void Display::finishBanner(const char *ssid, bool apEnabled, const String &ip) {
   M5.Display.fillScreen(kBlack);
-  for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
-    prevBar_[b] = 0;
-  }
-  for (size_t i = 0; i < kStripCount; i++) {
-    prevMeterQ_[i] = -1;
-    prevThrQ_[i] = -1;
-    prevMeterColor_[i] = 0xFFFFFFFF;
-    prevBandLo_[i] = -1;
-    prevBandHi_[i] = -1;
-    prevBandCtr_[i] = -1;
-    prevChrome_[i] = 0xFFFFFFFF;
-  }
+  invalidateAll();
   drawHint(ssid, apEnabled, ip);
   lastHudMs_ = 0;
+}
+
+void Display::invalidateAll() {
+  for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
+    prevBar_[b] = -1;
+  }
+  // 0xFF can never equal a real layer count, so the row area is cleared and
+  // repainted on the next frame.
+  prevLayers_ = 0xFF;
+  prevHeadLeft_[0] = '\0';
+  prevHeadRight_[0] = '\0';
+  prevHeadCol_ = -1;
+}
+
+void Display::setSelectedStrip(uint8_t i) {
+  if (i == selected_) {
+    return;
+  }
+  selected_ = i;
+  invalidateAll();
 }
 
 void Display::renderFrame(const float *bands, const Settings &settings,
                           const Telemetry &tele, uint32_t nowMs,
                           bool forceHud) {
   M5.Display.startWrite();
-  drawStripChrome(bands, settings);
-  drawMeters(tele, settings);
+  drawHeader(settings, tele);
+  drawSpectrum(bands);
+  drawLayerRows(settings, tele);
   if (forceHud || lastHudMs_ == 0 || (uint32_t)(nowMs - lastHudMs_) >= 100) {
     lastHudMs_ = nowMs;
     drawHud(tele, settings);

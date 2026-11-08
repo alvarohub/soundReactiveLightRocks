@@ -258,14 +258,14 @@ first. The GUI shows them as tickable chips.
 |-----|-------|--------|------|
 | `kTrigThreshold` | 1 | band level | `thresholdPct` |
 | `kTrigBeat` | 2 | beat detected in this layer's band | `beatSensitivityPct` |
-| `kTrigTap` | 4 | fingertip pad (or BtnA test trigger) | — |
+| `kTrigTap` | 4 | fingertip pad from the full-screen pad view | — |
 | `kTrigAccel` | 8 | the stick is whipped / shaken | `motionThresholdPct` on \|a\| − 1 g |
 | `kTrigGyro` | 16 | the stick is twisted quickly | `motionThresholdPct` on \|ω\| |
 | `kTrigLfo` | 32 | a free-running metronome, independent of everything | `lfoPeriodMs` |
 
 * `triggers = 0` means the layer is silent: no source can fire it.
 * The pad path is gated by `kTrigTap`, so unticking it really does stop pads from
-  reaching that layer; BtnA scrolls strips and BtnB cycles the trigger set.
+  reaching that layer; BtnB selects the next strip and BtnA cycles the trigger set.
 * Motion is read once per frame from the on-board IMU. `swing` is the magnitude of
   the acceleration **with gravity removed**, so a stick lying still reads 0 and a
   whip reads large.
@@ -351,6 +351,11 @@ driver out of range.
 | `ledCount` | 1…1000 | 100 | Actual number of LEDs on this strip (shows the calibration dot at `ledCount-1` while tuning) |
 | `brightnessPct` | 1…100 | 100 | Master output ceiling for the whole strip, applied after all layers are merged |
 | `layerCount` | 1…4 | 1 | How many light layers are live inside this strip. There is always at least one (switch it off instead of removing it) |
+
+A layer that is **added** starts switched **off**, with a plain threshold-driven
+jet, its own colour from a four-colour palette and its own band
+(`150 Hz + 250 Hz × slot`). Adding a layer therefore never changes what is on the
+strip until it is switched on, and four stacked layers give four different bands.
 | — | — | — | *(no strip-level blur: see `softnessPct` per layer below)* |
 
 ### Per light layer (the glowing object)
@@ -453,7 +458,7 @@ it when the slider is released.
 | GET | `/` | The control page |
 | GET | `/api/state` | Full state + telemetry + preset availability as JSON |
 | POST | `/api/params?strip=<p>&<key>=<value>` | Change the **physical** strip (`ledCount`, `brightnessPct`, `layerCount`, `solo`) |
-| POST | `/api/params?strip=<p>&layerAdd=<l>` | Append a layer copied from layer `l` (no-op at 4) |
+| POST | `/api/params?strip=<p>&layerAdd=<n>` | Append a fresh layer, switched off (the value is ignored; no-op at 4) |
 | POST | `/api/params?strip=<p>&layerRemove=<l>` | Delete layer `l` and compact the rest (no-op at 1) |
 | POST | `/api/params?strip=<p>&layer=<l>&<key>=<value>` | Change one **layer** (204, no body) |
 | POST | `/api/params?gainDb=<n>` | Microphone gain |
@@ -490,11 +495,19 @@ Unknown arguments are ignored; out-of-range values are clamped.
 
 | Control | Action |
 |---------|--------|
-| Screen | Spectrum bars, the dominant layer's band per strip, one merged output meter per strip (`S1`/`B1`/`M1`, plus `.N` when the strip holds N layers), AP status |
-| BtnA click | Select the next physical strip (shown with `>` on the LCD) |
-| BtnA hold | Toggle the access point |
-| BtnB click | Cycle the trigger set of every live layer on the selected strip |
+| Screen | Header `S<n> <n>L` + the strip's merged output, the shared spectrum, then one thin row per layer of the **selected** strip (see below), a HUD line, AP status |
+| BtnB click | Select the next physical strip — the screen switches to it |
 | BtnB hold | Save settings to flash |
+| BtnA click | Cycle the trigger set of every live layer on the selected strip |
+| BtnA hold | Toggle the access point |
+
+**Layer rows on the LCD.** Each row of the selected strip spans exactly that
+layer's frequency window on the *same* x axis as the spectrum above, so a layer
+and its bars are the same width and line up. Inside the window a bar fills with
+the band level (grey while the layer is switched off), the left gutter carries the
+trigger letter (`S` threshold, `B` beat, `A` accel/gyro, `M` tap, `-` off), and a
+dot on the right lights while the layer is actually emitting. Four rows stack, so
+a container is readable at a glance; `BtnB` moves to the other strip.
 | Boot | 3 s banner with SSID, password and URL |
 
 ---

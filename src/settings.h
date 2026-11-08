@@ -170,6 +170,27 @@ inline void clampLayer(LayerSettings &s) {
   s.loop = s.loop ? 1 : 0;
 }
 
+// A brand new layer slot: OFF, with a plain threshold-driven jet in a colour
+// that differs per slot. Adding a layer must never change what is on the strip
+// until the user switches it on, and the four slots have to be tellable apart at
+// a glance in the tab row and on the LCD.
+inline LayerSettings defaultLayerFor(uint8_t slot) {
+  static const uint8_t kPalette[kMaxLayersPerStrip][3] = {
+      {255, 106, 0}, {0, 170, 255}, {80, 255, 130}, {255, 90, 200}};
+  LayerSettings s;
+  s.enabled = 0;
+  const uint8_t i = slot < kMaxLayersPerStrip ? slot : 0;
+  s.r = kPalette[i][0];
+  s.g = kPalette[i][1];
+  s.b = kPalette[i][2];
+  // Each slot listens a little higher up, so stacking two layers immediately
+  // gives two different bands instead of the same one twice.
+  s.centerHz = (uint16_t)(150u + 250u * i);
+  s.widthHz = 250;
+  clampLayer(s);
+  return s;
+}
+
 inline void clampSettings(Settings &s) {
   for (size_t i = 0; i < kStripCount; i++) {
     clampPhysicalStrip(s.phys[i]);

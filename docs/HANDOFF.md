@@ -136,6 +136,27 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### Adding a layer must not change the light (2026-11-08)
+A new layer used to be a *copy* of the one being edited (rotated colour, 60 %
+weight). That made the strip visibly different before the user had asked for
+anything, and when the state refresh was missed the page could show one colour
+while the strip drew another. `defaultLayerFor(slot)` now gives a **fresh slot**:
+`enabled = 0`, plain threshold-driven jet, a palette colour per slot and its own
+band (`150 Hz + 250 Hz x slot`). A removed slot is reset the same way, so a stale
+layer can never sit enabled in a dead slot.
+
+### The LCD shows one strip at a time, one row per layer (2026-11-08)
+The old screen drew a band rectangle and a merged meter for *both* strips, which
+said nothing about the layers inside. Now `BtnB` selects a strip and the screen
+switches to it: header (`S<n> <n>L` + `out <n>%`), the shared spectrum, then one
+row per layer. The trick that makes it readable is that the spectrum and the rows
+**share one x axis** (`axisX0_..axisX1_`, with a gutter on the left for the
+trigger letter), so a row covers exactly the bars of the band it listens to.
+
+Rows repaint incrementally like the bars: geometry/colour changes redraw the row,
+a level change repaints only the delta (and repaints the track, not black, when
+the level falls), and the trigger dot only when it flips.
+
 ### The page must survive a dropped socket (2026-11-08)
 The board's web server serves **one socket at a time**, but the page could open
 two: `poll()` only checked `INFLIGHT` and `flush()` only checked `INFLIGHT`, so a

@@ -96,10 +96,10 @@ private:
   void handlePreset();
   void handleReset();
   bool readIndex(const char *name, size_t limit, size_t &out);
-  // Layer structure edits. Add duplicates a source layer with a shifted colour
-  // and a lower weight, so a new beam is immediately visible and distinct;
+  // Layer structure edits. Add appends a fresh slot switched OFF (with its own
+  // colour and band) so nothing on the strip changes until it is enabled;
   // remove deletes one slot and compacts the rest.
-  void addLayer(size_t p, uint8_t from);
+  void addLayer(size_t p);
   void removeLayer(size_t p, uint8_t index);
   void applyArg(const char *name, uint8_t *dst);
   void applyArg(const char *name, uint16_t *dst);

@@ -238,21 +238,15 @@ void runAgc(uint32_t nowMs) {
 }
 
 void handleButtons() {
-  if (M5.BtnA.wasClicked()) {
-    // Scroll the physically selected strip; BtnB then acts on it.
+  // BtnA (front) works on what the screen shows, BtnB (side) changes which
+  // physical strip the screen and the pads are working on.
+  if (M5.BtnB.wasClicked()) {
     hwStrip = (uint8_t)((hwStrip + 1) % kStripCount);
     display.setSelectedStrip(hwStrip);
     Serial.printf("[btn] strip %u selected\n", (unsigned)hwStrip + 1);
   }
 
-  if (M5.BtnA.wasHold()) {
-    const bool on = web.setEnabled(!web.enabled());
-    showBanner();
-    delay(on ? 2000 : 800);
-    finishBanner();
-  }
-
-  if (M5.BtnB.wasClicked()) {
+  if (M5.BtnA.wasClicked()) {
     // Cycle the trigger mode of every live layer on the selected strip.
     bool any = false;
     for (size_t l = 0; l < settings.phys[hwStrip].layerCount; l++) {
@@ -266,6 +260,13 @@ void handleButtons() {
                     (unsigned)hwStrip + 1,
                     (unsigned)settings.layer[hwStrip][0].triggers);
     }
+  }
+
+  if (M5.BtnA.wasHold()) {
+    const bool on = web.setEnabled(!web.enabled());
+    showBanner();
+    delay(on ? 2000 : 800);
+    finishBanner();
   }
 
   if (M5.BtnB.wasHold()) {

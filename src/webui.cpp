@@ -169,7 +169,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <button id=rst class="btn warn wide">Factory reset</button>
 </div>
 
-<div class=hint style="text-align:center">BtnA: next strip &middot; BtnB: cycle triggers &middot; hold A: Wi-Fi &middot; hold B: save</div>
+<div class=hint style="text-align:center">BtnA: cycle triggers &middot; BtnB: next strip &middot; hold A: Wi-Fi &middot; hold B: save</div>
 
 <script>
 var S=0,L=0,ST=null,BUILT=false,SEEDED=false,TRIG=1,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0,SOLO=-1;
@@ -673,10 +673,11 @@ function build(){
  $('addlayer').onclick=function(){
   var n=layerCount();
   if(n>=4){flashMsg('Maximum 4 layers');return;}
-  // The new layer is a copy of the one you are looking at, in another colour
-  // and at 60% weight, so it shows up as a second beam straight away.
-  sendPhys('layerAdd',L);
-  syncState(function(){L=layerCount()-1;fillInputs();live();});
+  // A new layer arrives switched OFF, with its own colour and band, so adding
+  // one never changes the light that is already on the strip.
+  sendPhys('layerAdd',1);
+  syncState(function(){L=layerCount()-1;fillInputs();live();
+   flashMsg('Layer '+(L+1)+' added - it is off, switch it on');});
  };
  $('remlayer').onclick=function(){
   var n=layerCount();
@@ -1186,21 +1187,15 @@ void WebUi::applyArg(const char *name, uint16_t *dst) {
   *dst = (uint16_t)constrain(server_.arg(name).toInt(), 0L, 65535L);
 }
 
-void WebUi::addLayer(size_t p, uint8_t from) {
+void WebUi::addLayer(size_t p) {
   PhysicalStripSettings &ps = settings_->phys[p];
   if (ps.layerCount >= kMaxLayersPerStrip) {
     return;
   }
-  const uint8_t srcIndex = from < ps.layerCount ? from : 0;
-  LayerSettings &dst = settings_->layer[p][ps.layerCount];
-  dst = settings_->layer[p][srcIndex];
-  // A copy in another colour at a lower weight reads as a second beam rather
-  // than as a doubling of the first one.
-  const uint8_t r = dst.r;
-  dst.r = dst.b;
-  dst.b = dst.g;
-  dst.g = r;
-  dst.intensityPct = (uint8_t)((dst.intensityPct * 6u) / 10u);
+  // A fresh slot, not a copy: adding a layer must not change the light that is
+  // already on the strip. It arrives switched off, in its own colour and on its
+  // own band, so switching it on gives a second beam rather than a clone.
+  settings_->layer[p][ps.layerCount] = defaultLayerFor(ps.layerCount);
   edit_[p] = ps.layerCount;
   ps.layerCount++;
   clampSettings(*settings_);
@@ -1218,9 +1213,9 @@ void WebUi::removeLayer(size_t p, uint8_t index) {
   for (uint8_t i = index; i < last; i++) {
     settings_->layer[p][i] = settings_->layer[p][i + 1];
   }
-  LayerSettings &freed = settings_->layer[p][last];
-  freed = LayerSettings();
-  clampLayer(freed);
+  // The freed slot goes back to the switched-off default, so a stale layer can
+  // never sit there enabled if the count is raised again.
+  settings_->layer[p][last] = defaultLayerFor(last);
   ps.layerCount = last;
   // Solo and the pad's edit target are indices, so they have to follow the shift.
   if (solo_[p] == (int8_t)index) {
@@ -1253,9 +1248,7 @@ void WebUi::handleParams() {
     // count, so the page and the board cannot disagree about which slot is
     // being created or destroyed.
     if (server_.hasArg("layerAdd")) {
-      const long from = constrain(server_.arg("layerAdd").toInt(), 0L,
-                                  (long)kMaxLayersPerStrip - 1);
-      addLayer(p, (uint8_t)from);
+      addLayer(p);
     }
     if (server_.hasArg("layerRemove")) {
       const long idx = constrain(server_.arg("layerRemove").toInt(), 0L,
