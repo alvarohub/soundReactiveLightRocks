@@ -144,6 +144,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 </div>
 <div class=ptitle id=ptitle style="margin:12px 0 8px"></div>
 <div class=row><span>Layer power</span><label class=sw><input type=checkbox id=pwr><i></i></label></div>
+<div id=ipanel></div>
 </div>
 
 <div class=card id=trigbox></div>
@@ -480,9 +481,9 @@ function build(){
   $(k).addEventListener('change',flush);
  });
 
- /* ---- display: colour + intensity (layer), brightness (physical) ---- */
+ /* ---- display: colour + softness (layer) ---- */
  var dbox=$('dispbox');
- dbox.innerHTML='<div class=ptitle id=dtitle>Display<small>colour, weight &amp; softness of this layer</small></div>'
+ dbox.innerHTML='<div class=ptitle id=dtitle>Display<small>colour &amp; softness of this layer</small></div>'
   +'<div class=row><span>Layer colour</span><b id=colv>-</b></div>'
   +'<div class=cwrap><canvas id=wheel width=152 height=152></canvas><div class=cbox id=cbox></div></div>'
   +'<div id=spanel></div>';
@@ -500,8 +501,12 @@ function build(){
  wh.addEventListener('pointerup',function(e){if(!WDRAG)return;WDRAG=false;pickWheel(e,true);});
  wh.addEventListener('pointercancel',function(){WDRAG=false;flush();});
  bindLayerRange($('spanel'),[
-  {k:'intensityPct',n:'Layer intensity',min:1,max:100,st:1,u:'%'},
   {k:'softnessPct',n:'Softness (blur of the edges)',min:0,max:100,st:1,u:'%'}
+ ]);
+ // The layer's weight sits with its power switch, above the cards: the two are
+ // the layer's on/off and how strongly it contributes, nothing else.
+ bindLayerRange($('ipanel'),[
+  {k:'intensityPct',n:'Layer intensity',min:1,max:100,st:1,u:'%'}
  ]);
  // Strip-level controls live in the strip card, directly under the strip tabs.
  ['brightnessPct'].forEach(function(k){

@@ -414,7 +414,10 @@ it when the slider is released.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
 * Strip-level controls sit **directly under the Strip 1 / Strip 2 buttons**, before
-  the layer list: `Strip brightness`, `Bleed / blur`, then `Light layers inside`.
+  the layer list: `Strip brightness`, then `Light layers inside`.
+* The per-layer pair `Layer power` + `Layer intensity` closes the strip card, right
+  under the layer title, so switching a layer off and setting its weight are the
+  same gesture. Colour and softness live in the **Display** card below.
 * The page header shows the **firmware version** (`LightRocks-1 · 192.168.4.1 · v1.0`)
   so it is obvious whether an upload actually took.
 * **Trigger inputs** are five tickable chips (`Threshold`, `Auto beat`, `Tap pads`,

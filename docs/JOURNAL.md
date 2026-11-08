@@ -889,6 +889,19 @@ of layer 1.
 
 Both envs build clean.
 
+## 2026-11-08 — Layer intensity moves next to Layer power
+
+`Layer intensity` was in the Display card with the colour wheel and softness, far
+from the switch that turns the layer off, although the two answer the same question
+("how much of this layer is in the mix?"). It now sits directly under
+`Layer power` at the bottom of the strip card; the Display card keeps colour and
+softness and is retitled "colour & softness of this layer".
+
+Verified in the browser against a mock device: the slider is still bound per layer
+(set Layer 2 to 35 %, Layer 1 stays 100 %, switching tabs refills the slider), and
+the strip card order is `Physical strip → Strip brightness → Light layers inside →
+tabs → title → Layer power → Layer intensity`.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:
