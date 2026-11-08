@@ -29,10 +29,11 @@ enum LayerTrigger : uint8_t {
   kTrigTap       = 1u << 2, // a fingertip pad (or BtnA) is pressed
   kTrigAccel     = 1u << 3, // the stick is whipped / shaken
   kTrigGyro      = 1u << 4, // the stick is twisted quickly
+  kTrigLfo       = 1u << 5, // a free-running metronome ("glow" is a slow one)
 };
 
-constexpr uint8_t kAllTriggers =
-    kTrigThreshold | kTrigBeat | kTrigTap | kTrigAccel | kTrigGyro;
+constexpr uint8_t kAllTriggers = kTrigThreshold | kTrigBeat | kTrigTap |
+                                 kTrigAccel | kTrigGyro | kTrigLfo;
 
 struct LayerSettings {
   enum Effect : uint8_t {
@@ -40,8 +41,9 @@ struct LayerSettings {
     kEffectFlash = 1,   // whole-strip flash that fades out
     kEffectBurst = 2,   // shockwave splitting outward from the strip centre
     kEffectSparkle = 3, // glittering shower of sparks
-    kEffectWhip = 4,    // whip: speed from |accel|, colour from its direction
-    kEffectGlow = 5,    // slow breathing that runs without any trigger at all
+    kEffectWhip = 4, // whip: speed from |accel|, colour from its direction
+    // There is no "glow" effect: a glow is a Flash with a long attack and
+    // release fired by the LFO trigger. Trigger and effect stay orthogonal.
   };
 
   enum DirMode : uint8_t {
@@ -65,9 +67,13 @@ struct LayerSettings {
   // full scale before kTrigAccel / kTrigGyro fires.
   uint8_t motionThresholdPct = 30;
 
-  // Glow only: one full dim -> bright -> dim cycle. Independent of the
-  // microphone, like the sister project's Glow mode.
-  uint16_t glowPeriodMs = 2000;
+  // Flash envelope. A short attack/release with the LFO at a fast period is a
+  // strobe; a long attack/release with a slow LFO is a glow.
+  uint16_t attackMs = 20;
+  uint16_t releaseMs = 400;
+
+  // Free-running metronome period for kTrigLfo.
+  uint16_t lfoPeriodMs = 2000;
 
   uint8_t retrigger = 1;      // 1 = gap after retriggerMs, 0 = wait until idle
   uint16_t retriggerMs = 300; // minimum gap between effects on this layer
@@ -87,6 +93,7 @@ struct PhysicalStripSettings {
   uint16_t ledCount = kDefaultLedsPerStrip;
   uint8_t brightnessPct = 100; // master ceiling for this strip (1..100)
   uint8_t layerCount = 1;      // how many of the kMaxLayersPerStrip slots are live
+  uint8_t bleedPct = 0;        // spatial blur applied to the merged frame
 };
 
 // Runtime parameters, shared by the strips, the screen and the web UI. Every
@@ -131,13 +138,15 @@ inline void clampPhysicalStrip(PhysicalStripSettings &p) {
   p.ledCount = clampU16(p.ledCount, Settings::kMinLeds, Settings::kMaxLeds);
   p.brightnessPct = clampU8(p.brightnessPct, 1, Settings::kMaxBrightnessPct);
   p.layerCount = clampU8(p.layerCount, 1, (uint8_t)kMaxLayersPerStrip);
+  p.bleedPct = clampU8(p.bleedPct, 0, 100);
 }
 
 inline void clampLayer(LayerSettings &s) {
   s.triggers = (uint8_t)(s.triggers & kAllTriggers);
-  s.effect =
-      clampU8(s.effect, LayerSettings::kEffectJet, LayerSettings::kEffectGlow);
-  s.glowPeriodMs = clampU16(s.glowPeriodMs, 200, 5000);
+  s.effect = clampU8(s.effect, LayerSettings::kEffectJet, LayerSettings::kEffectWhip);
+  s.attackMs = clampU16(s.attackMs, 0, 2000);
+  s.releaseMs = clampU16(s.releaseMs, 10, 5000);
+  s.lfoPeriodMs = clampU16(s.lfoPeriodMs, 100, 5000);
   s.enabled = s.enabled ? 1 : 0;
   s.intensityPct =
       clampU8(s.intensityPct, Settings::kMinIntensityPct, 100);
@@ -269,13 +278,13 @@ struct Telemetry {
 // Fixed-layout, versioned binary encoding of Settings for NVS flash storage.
 // ---------------------------------------------------------------------------
 
-constexpr size_t kLayerBlockSize = 26;
-constexpr size_t kPhysBlockSize = 4;
+constexpr size_t kLayerBlockSize = 32;
+constexpr size_t kPhysBlockSize = 6;
 constexpr size_t kSettingsHeaderSize = 2; // version, gainDb
 constexpr size_t kSettingsBlobSize =
     kSettingsHeaderSize + kPhysBlockSize * kStripCount +
     kLayerBlockSize * kStripCount * kMaxLayersPerStrip;
-constexpr uint8_t kSettingsBlobVersion = 7;
+constexpr uint8_t kSettingsBlobVersion = 8;
 
 void encodeSettings(const Settings &s, uint8_t *out);
 bool decodeSettings(const uint8_t *in, size_t len, Settings &out);

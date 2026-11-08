@@ -262,6 +262,52 @@ void LedStrip::addSparkles(float amp, float weight, uint32_t seed, uint8_t r,
   dirty_ = true;
 }
 
+void LedStrip::bleed(float amount, bool wrap) {
+  if (!ready_ || amount <= 0.0f || count_ < 2) {
+    return;
+  }
+  const float a = amount > 1.0f ? 1.0f : amount;
+  // One pass at full strength is already a proper [1,2,1]/4 kernel; stronger
+  // settings repeat it, which widens the glow instead of just dimming it.
+  const int passes = 1 + (int)(a * 2.0f);
+  const float side = 0.25f * a;
+  const float centre = 1.0f - 2.0f * side;
+
+  // In-place, left to right, keeping only the previous *original* pixel. The
+  // first pixel is saved because a ring needs it again for the last one. This
+  // costs a handful of floats instead of a second 12 KB frame buffer.
+  for (int pass = 0; pass < passes; pass++) {
+    float first[3] = {buf_[0][0], buf_[0][1], buf_[0][2]};
+    float prev[3] = {wrap ? buf_[count_ - 1][0] : buf_[0][0],
+                     wrap ? buf_[count_ - 1][1] : buf_[0][1],
+                     wrap ? buf_[count_ - 1][2] : buf_[0][2]};
+
+    for (uint16_t i = 0; i < count_; i++) {
+      float cur[3] = {buf_[i][0], buf_[i][1], buf_[i][2]};
+      float next[3];
+      if (i + 1 < count_) {
+        next[0] = buf_[i + 1][0];
+        next[1] = buf_[i + 1][1];
+        next[2] = buf_[i + 1][2];
+      } else if (wrap) {
+        next[0] = first[0];
+        next[1] = first[1];
+        next[2] = first[2];
+      } else {
+        next[0] = cur[0]; // clamp at the end of a one-shot strip
+        next[1] = cur[1];
+        next[2] = cur[2];
+      }
+
+      for (int c = 0; c < 3; c++) {
+        buf_[i][c] = centre * cur[c] + side * (prev[c] + next[c]);
+        prev[c] = cur[c];
+      }
+    }
+  }
+  dirty_ = true;
+}
+
 void LedStrip::show(uint8_t brightnessPct) {
   if (!ready_) {
     return;

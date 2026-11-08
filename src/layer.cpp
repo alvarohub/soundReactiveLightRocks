@@ -51,7 +51,8 @@ void LayerEngine::reset() {
   }
   flashAmp_ = 0.0f;
   sparkleAmp_ = 0.0f;
-  glowPhase_ = 0.0f;
+  lfoPhase_ = 0.0f;
+  flashReleaseAtMs_ = 0;
   peak_ = 0.0f;
   held_ = false;
   heldMs_ = 0;
@@ -80,6 +81,7 @@ void LayerEngine::spawnJet(const LayerSettings &s, uint16_t ledCount) {
   Blob &b = allocSlot();
   b.active = true;
   b.amp = 1.0f;
+  b.life = 1.0f;
   b.pos = initialPos(s, ledCount);
   b.prevPos = b.pos;
   b.dir = initialDir(s);
@@ -92,6 +94,7 @@ void LayerEngine::spawnBurst(const LayerSettings &s, uint16_t ledCount) {
     Blob &b = allocSlot();
     b.active = true;
     b.amp = 1.0f;
+    b.life = 1.0f;
     b.pos = center;
     b.prevPos = center;
     b.dir = dir;
@@ -108,6 +111,7 @@ void LayerEngine::spawnWhip(const LayerSettings &s, uint16_t ledCount) {
   Blob &b = allocSlot();
   b.active = true;
   b.amp = 1.0f;
+  b.life = 1.0f;
   b.burst = 0;
   b.dir = dir;
   b.pos = dir > 0 ? 0.0f : (ledCount > 1 ? (float)(ledCount - 1) : 0.0f);
@@ -127,7 +131,7 @@ void LayerEngine::triggerEffect(uint8_t effect, const LayerSettings &s,
                                 uint16_t ledCount) {
   switch (effect) {
   case LayerSettings::kEffectFlash:
-    flashAmp_ = 1.0f;
+    flashReleaseAtMs_ = millis() + s.attackMs;
     break;
   case LayerSettings::kEffectBurst:
     spawnBurst(s, ledCount);
@@ -137,10 +141,6 @@ void LayerEngine::triggerEffect(uint8_t effect, const LayerSettings &s,
     break;
   case LayerSettings::kEffectWhip:
     spawnWhip(s, ledCount);
-    break;
-  case LayerSettings::kEffectGlow:
-    // Glow breathes on its own; a trigger is a brief boost on top of it.
-    flashAmp_ = 1.0f;
     break;
   case LayerSettings::kEffectJet:
   default:
@@ -180,20 +180,18 @@ void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion
 
   sparkleSeed_ = sparkleSeed_ * 1664525u + 1013904223u + nowMs;
 
-  // Glow is the one effect that does not need a trigger: it advances its own
-  // phase, so the layer breathes continuously (mic and motion independent).
-  if (s.effect == LayerSettings::kEffectGlow) {
-    glowPhase_ += dtSec * 1000.0f / (float)s.glowPeriodMs;
-    if (glowPhase_ >= 1.0f) {
-      glowPhase_ -= floorf(glowPhase_);
-    }
-    // If beats are armed, snap the wave to its peak on each beat so the
-    // breathing lands with the music instead of drifting against it.
-    if ((s.triggers & kTrigBeat) && onBeat) {
-      glowPhase_ = 0.5f; // a raised cosine peaks at half a cycle
+  // The LFO is a free-running metronome: it fires on its own, independent of
+  // the microphone. Firing it into a Flash with a long attack and release is
+  // exactly the old "glow"; with a short attack and release it is a strobe.
+  bool lfoFired = false;
+  if (s.triggers & kTrigLfo) {
+    lfoPhase_ += dtSec * 1000.0f / (float)s.lfoPeriodMs;
+    if (lfoPhase_ >= 1.0f) {
+      lfoPhase_ -= floorf(lfoPhase_);
+      lfoFired = true;
     }
   } else {
-    glowPhase_ = 0.0f;
+    lfoPhase_ = 0.0f;
   }
 
   // Safety timeout: if the browser disconnects while holding a pad, release
@@ -222,9 +220,20 @@ void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion
     }
   }
 
-  if (!(held_ && heldEffect_ == LayerSettings::kEffectFlash) &&
-      flashAmp_ > 0.0f) {
-    flashAmp_ -= decayPerSec * dtSec;
+  // Flash follows an attack/release envelope rather than a linear decay, which
+  // is what lets the same effect be a hard strobe or a slow glow.
+  if (held_ && heldEffect_ == LayerSettings::kEffectFlash) {
+    flashAmp_ = 1.0f;
+  } else if (flashAmp_ > 0.0f || nowMs < flashReleaseAtMs_) {
+    const bool rising = (int32_t)(flashReleaseAtMs_ - nowMs) > 0;
+    const float tau = (float)(rising ? s.attackMs : s.releaseMs);
+    if (tau <= 0.0f) {
+      flashAmp_ = rising ? 1.0f : 0.0f;
+    } else {
+      const float alpha = 1.0f - expf(-(float)dtMs / tau);
+      const float target = rising ? 1.0f : 0.0f;
+      flashAmp_ += (target - flashAmp_) * alpha;
+    }
     if (flashAmp_ <= kBlobEpsilon) {
       flashAmp_ = 0.0f;
     }
@@ -314,10 +323,17 @@ void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion
       }
     }
 
-    b.amp -= decayPerSec * dtSec;
-    if (b.amp <= kBlobEpsilon) {
+    // Fade in PERCEIVED brightness: gamma is applied once at the output, so a
+    // linear decay of the light amplitude would display as amp^2.2 (a fast
+    // drop and then a long dim tail). Decaying `life` linearly and taking the
+    // inverse gamma makes "fade time" mean what it says to the eye.
+    b.life -= decayPerSec * dtSec;
+    if (b.life <= kBlobEpsilon) {
+      b.life = 0.0f;
       b.amp = 0.0f;
       b.active = false;
+    } else {
+      b.amp = powf(b.life, 1.0f / kRenderGamma);
     }
   }
 
@@ -347,6 +363,14 @@ void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion
     shouldTrigger = true;
   }
 
+  if (lfoFired) {
+    // A metronome must not be swallowed by the retrigger gap.
+    triggerEffect(s.effect, s, ledCount);
+    spawned_ = true;
+    lastSpawnMs_ = nowMs;
+    return;
+  }
+
   if (!shouldTrigger) {
     return;
   }
@@ -371,18 +395,7 @@ void LayerEngine::render(LedStrip &strip, const LayerSettings &s) {
   const float w = powf(shown, 1.0f / kRenderGamma);
   peak_ = 0.0f;
 
-  if (s.effect == LayerSettings::kEffectGlow) {
-    const float wave = 0.5f - 0.5f * cosf(6.28318531f * glowPhase_);
-    const float amp = wave > 1.0f ? 1.0f : wave;
-    strip.addFill(amp, w, s.r, s.g, s.b);
-    if (amp > peak_) {
-      peak_ = powf(amp, kRenderGamma) * shown;
-    }
-    // A trigger adds a transient boost on top of the breathing.
-    if (flashAmp_ > 0.0f) {
-      strip.addFill(flashAmp_ * 0.6f, w, s.r, s.g, s.b);
-    }
-  } else if (flashAmp_ > 0.0f) {
+  if (flashAmp_ > 0.0f) {
     strip.addFill(flashAmp_, w, s.r, s.g, s.b);
     peak_ = powf(flashAmp_ > 1.0f ? 1.0f : flashAmp_, kRenderGamma) * shown;
   }
@@ -434,10 +447,18 @@ void LayerEngine::drawBlob(LedStrip &strip, const Blob &b, float halfWidth,
 
   // Sub-frame ghosts. One sample per frame is only fine while the blob moves
   // less than its own width; past that, consecutive frames stop touching and it
-  // reads as teleporting. Above 500 LED/s and 31 fps a blob jumps ~16 LEDs.
-  constexpr float kGhostStep = 0.6f; // LEDs between ghosts
+  // reads as teleporting.
+  //
+  // The spacing MUST scale with the blob, not be a fixed number of LEDs: with a
+  // 1-LED blob a fixed 0.6 LED spacing puts each ghost on a different LED and you
+  // get a dotted line instead of a streak. Half the half-width guarantees the
+  // neighbouring profiles overlap.
+  float ghostStep = halfWidth * 0.5f;
+  if (ghostStep < 0.15f) {
+    ghostStep = 0.15f;
+  }
   constexpr int kMaxGhosts = 12;
-  int ghosts = 1 + (int)(fabsf(travel) / kGhostStep);
+  int ghosts = 1 + (int)(fabsf(travel) / ghostStep);
   if (ghosts > kMaxGhosts) {
     ghosts = kMaxGhosts;
   }

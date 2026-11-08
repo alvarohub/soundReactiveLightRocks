@@ -677,6 +677,59 @@ share the radio and cannot both run at full duty.
 [docs/IDEAS.md](./IDEAS.md) — running list of ideas, libraries and results, as
 requested, so nothing is lost between sessions.
 
+## 2026-11-08 (evening) — Ghosts, bleed, and Glow becomes an LFO trigger
+
+### The "weird little disconnected" blobs
+
+My own regression. The motion-blur ghosts used a **fixed 0.6-LED step**, so with a
+1-LED blob (`halfWidth = 0.5`) every ghost landed on a different LED: a dotted line,
+which is exactly what the user described at low speed with one LED.
+
+Fix: the step is now `halfWidth / 2`, so neighbouring profiles always overlap. If the
+blob is so short that even that looks dotted, the answer is spatial, not temporal.
+
+### Bleed / blur (user's suggestion, and the right one)
+
+Per-strip `bleedPct` applies a `[1,2,1]/4` convolution to the **merged** frame just
+before gamma, repeated up to three times at 100 %. Implemented **in place** with a
+rolling window (prev/cur/next plus one saved pixel for the ring wrap) so it costs a
+handful of floats instead of a second 12 KB frame buffer — the first version did
+allocate one and pushed RAM from 30 % to 37.6 %.
+
+### Fade shape
+
+With gamma at the output, decaying the light amplitude linearly displays as
+`amp^2.2`: a fast drop and then a long dim tail, so `fadeMs` did not mean what the
+slider said. `Blob::life` now ages linearly and `amp = life^(1/2.2)`, making
+displayed brightness fall linearly with time (0.25/0.50/0.75 of the fade now shows
+0.75/0.50/0.25 instead of 0.53/0.22/0.05).
+
+### Glow is a trigger, not an effect
+
+Adopted the user's framing exactly: "glow mode is in fact a trigger... a metronome".
+* `kEffectGlow` is gone.
+* `kTrigLfo` (bit 32) is a free-running metronome with `lfoPeriodMs`; it bypasses the
+  retrigger gate because a clock should not be swallowed by a gap.
+* `Flash` gained `attackMs` and `releaseMs`. Long + slow LFO = glow; short + fast LFO
+  = strobe. Trigger and effect stay orthogonal.
+* Blob v8 migrates a stored `effect == 5` into `Flash + LFO` with
+  `attack = period/4`, `release = period/2`, so a saved preset keeps its look.
+
+### UI
+
+Strip-level controls moved out of the layers section into the strip card, directly
+under the Strip 1 / Strip 2 buttons: **Strip brightness**, then **Bleed / blur**, then
+the layer list — as requested. The Display card is now only the layer colour and
+intensity.
+
+### Refresh rate: measured budget, honest answer
+
+30 µs/LED means 3 ms for 100 LEDs, 9 ms for 300, 30 ms for 1000 — so the strip is
+*not* the bottleneck. The blocking mic capture (512/16 kHz = 32 ms) fixes the loop at
+~31 fps regardless of speed. Going faster needs the audio capture moved to its own
+task with a ring buffer; that is now the top item in IDEAS.md rather than something
+motion blur is papering over.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

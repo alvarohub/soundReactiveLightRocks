@@ -32,6 +32,11 @@ public:
   void addFill(float amp, float weight, uint8_t r, uint8_t g, uint8_t b);
   void addSparkles(float amp, float weight, uint32_t seed, uint8_t r, uint8_t g,
                    uint8_t b);
+  // Optional spatial bleed: spreads light into neighbouring LEDs with a
+  // [1,2,1]/4 kernel before gamma. Cheap, and it is what makes a very short blob
+  // read as a soft bump instead of a hard dot. amount 0..1, ring-aware.
+  void bleed(float amount, bool wrap);
+
   void show(uint8_t brightnessPct = 100);
 
   // Calibration mode: blacks out the entire strip and lights only LED

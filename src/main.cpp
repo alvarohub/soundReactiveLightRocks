@@ -133,6 +133,12 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
     lt.bpm = beats[i][l].bpm();
   }
 
+  // Spatial bleed is applied to the merged frame, just before gamma: it is a
+  // property of the physical strip, not of any one layer.
+  if (ps.bleedPct > 0 && !web.isCalibrating(i, nowMs)) {
+    strip.bleed((float)ps.bleedPct / 100.0f, true);
+  }
+
   // Calibration shows only the physical tip, so it replaces the merged frame.
   if (web.isCalibrating(i, nowMs)) {
     const LayerSettings &s = settings.layer[i][web.editLayer(i)];

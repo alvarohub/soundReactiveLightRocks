@@ -136,6 +136,21 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### Ghost spacing must scale with the blob (2026-11-08)
+The first motion-blur implementation used a fixed 0.6-LED ghost step, which put each
+ghost on a different LED for a 1-LED blob and produced a dotted line. The step is now
+`halfWidth / 2`, so neighbouring profiles always overlap. Keep it relative.
+
+### Fade is perceptual, gamma stays at the output (2026-11-08)
+`Blob::life` ages linearly and `amp = life^(1/2.2)`. Do not go back to decaying the
+amplitude directly: with gamma at the output that displays as `amp^2.2` (fast drop,
+long dim tail) and `fadeMs` stops meaning what it says.
+
+### Glow is a trigger, not an effect (2026-11-08)
+There is no `kEffectGlow`. `kTrigLfo` is a free-running metronome, and `Flash` has
+`attackMs`/`releaseMs`: long ones give the old glow look, short ones give a strobe.
+Blob v8 migrates a saved `effect == 5` to `Flash + LFO` with matching timings.
+
 ### Fast blobs must be swept, not sampled (2026-11-08)
 At ~31 fps a blob at 500 LED/s moves ~16 LEDs per frame, so a small blob appeared to
 teleport. `LayerEngine::drawBlob()` now draws up to 12 ghosts along the path covered

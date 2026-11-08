@@ -53,6 +53,34 @@ the board raising its own AP. Useful the moment there is more than one rock.
 
 ---
 
+## Refresh rate: where the ceiling actually is
+
+**Result (computed, to be confirmed on hardware).** WS2812B needs ~30 µs per LED, so
+one full frame costs:
+
+| LEDs | RMT transfer |
+|------|--------------|
+| 100 | 3.0 ms |
+| 300 | 9.0 ms |
+| 1000 | 30 ms |
+
+That is **not** what limits us today. The loop is paced by a *blocking* microphone
+capture — `512 samples / 16 kHz = 32 ms` — so the firmware runs at ~31 fps no matter
+how fast the strip is or what `speed` is set to. At 500 LED/s that is 16 LEDs of
+travel per frame, which is exactly why fast blobs used to alias.
+
+**So: the LED transfer only becomes the limit above ~300 LEDs.**
+
+**Idea (the real fix):** decouple audio from rendering. Run `M5.Mic.record()` in its
+own FreeRTOS task writing into a small ring buffer; the main loop then renders at
+60–100 Hz using the most recent analysis. Costs one task, ~4 KB of buffer and a bit
+of care around the FFT buffers. This would remove the need for motion-blur ghosts
+almost entirely, and would make whip/pad response feel instant.
+
+**Idea (cheap stopgap):** cap `speed` at `frameRate × 1 LED` (≈31 LED/s at 31 fps)
+and instead express speed in "screens per second", so the UI cannot ask for motion
+the frame rate cannot represent.
+
 ## Rendering: sub-frame motion (done 2026-11-08)
 
 **Result:** at the audio-paced frame rate (~31 fps), `speed` and `blobLeds`

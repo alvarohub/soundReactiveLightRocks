@@ -11,6 +11,7 @@ constexpr char kPresetKeys[SettingsStore::kPresetCount][8] = {
 
 // Older layouts, kept so presets written by earlier firmware still load: their
 // single "strip" becomes layer 0 of that physical strip.
+constexpr uint8_t kBlobVersionV7 = 7;
 constexpr uint8_t kBlobVersionV6 = 6;
 constexpr uint8_t kBlobVersionV5 = 5;
 constexpr uint8_t kBlobVersionV4 = 4;
@@ -27,23 +28,27 @@ inline uint16_t get16(const uint8_t *p) {
   return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
-// Physical block (4 bytes): ledCount(2), brightnessPct, layerCount.
+// Physical block (6 bytes): ledCount(2), brightnessPct, layerCount, bleedPct,
+// spare.
 inline void encodePhys(const PhysicalStripSettings &p, uint8_t *b) {
   put16(b + 0, p.ledCount);
   b[2] = p.brightnessPct;
   b[3] = p.layerCount;
+  b[4] = p.bleedPct;
+  b[5] = 0;
 }
 
 inline void decodePhys(const uint8_t *b, PhysicalStripSettings &p) {
   p.ledCount = get16(b + 0);
   p.brightnessPct = b[2];
   p.layerCount = b[3];
+  p.bleedPct = b[4];
 }
 
-// Layer block (26 bytes): triggers, effect, enabled, intensityPct, centerHz(2),
+// Layer block (32 bytes): triggers, effect, enabled, intensityPct, centerHz(2),
 // widthHz(2), thresholdPct, beatSensitivityPct, retriggerMs(2), blobLeds(2),
 // speed(2), fadeMs(2), reverse, loop, retrigger, r, g, b,
-// motionThresholdPct, spare.
+// motionThresholdPct, lfoPeriod/20, attackMs(2), releaseMs(2), 2 spare.
 inline void encodeLayer(const LayerSettings &s, uint8_t *p) {
   p[0] = s.triggers;
   p[1] = s.effect;
@@ -64,9 +69,11 @@ inline void encodeLayer(const LayerSettings &s, uint8_t *p) {
   p[22] = s.g;
   p[23] = s.b;
   p[24] = s.motionThresholdPct;
-  // Byte 25 used to be spare; it now carries the glow period in 20 ms units, so
-  // v6 blobs (which stored 0 there) simply pick the default.
-  p[25] = (uint8_t)((s.glowPeriodMs + 10) / 20);
+  p[25] = (uint8_t)((s.lfoPeriodMs + 10) / 20);
+  put16(p + 26, s.attackMs);
+  put16(p + 28, s.releaseMs);
+  p[30] = 0;
+  p[31] = 0;
 }
 
 inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
@@ -89,7 +96,15 @@ inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
   s.g = p[22];
   s.b = p[23];
   s.motionThresholdPct = p[24];
-  s.glowPeriodMs = (uint16_t)p[25] * 20;
+  s.lfoPeriodMs = (uint16_t)p[25] * 20;
+  s.attackMs = get16(p + 26);
+  s.releaseMs = get16(p + 28);
+  if (s.lfoPeriodMs == 0) {
+    s.lfoPeriodMs = 2000;
+  }
+  if (s.releaseMs == 0) {
+    s.releaseMs = 400;
+  }
 }
 
 // A single old `mode` enum becomes the matching trigger bit.
@@ -127,8 +142,12 @@ inline void decodeStripV4(const uint8_t *p, PhysicalStripSettings &phys,
   l.beatSensitivityPct = p[24];
   l.effect = p[25];
   phys.layerCount = 1;
+  phys.bleedPct = 0;
   l.intensityPct = 100;
   l.motionThresholdPct = 30;
+  l.lfoPeriodMs = 2000;
+  l.attackMs = 20;
+  l.releaseMs = 400;
 }
 
 // v3 strip block -> same, but without beatSensitivityPct / effect.
@@ -178,6 +197,58 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
         n += kLayerBlockSize;
       }
     }
+  } else if (in[0] == kBlobVersionV7 &&
+             len == kSettingsHeaderSize + 4 * kStripCount +
+                        (size_t)26 * kStripCount * kMaxLayersPerStrip) {
+    size_t n = kSettingsHeaderSize;
+    for (size_t i = 0; i < kStripCount; i++) {
+      const uint8_t *b = in + n;
+      s.phys[i].ledCount = get16(b + 0);
+      s.phys[i].brightnessPct = b[2];
+      s.phys[i].layerCount = b[3];
+      s.phys[i].bleedPct = 0;
+      n += 4;
+    }
+    for (size_t i = 0; i < kStripCount; i++) {
+      for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+        LayerSettings &d = s.layer[i][l];
+        const uint8_t *b = in + n;
+        d.triggers = b[0];
+        d.effect = b[1];
+        d.enabled = b[2];
+        d.intensityPct = b[3];
+        d.centerHz = get16(b + 4);
+        d.widthHz = get16(b + 6);
+        d.thresholdPct = b[8];
+        d.beatSensitivityPct = b[9];
+        d.retriggerMs = get16(b + 10);
+        d.blobLeds = get16(b + 12);
+        d.speed = get16(b + 14);
+        d.fadeMs = get16(b + 16);
+        d.reverse = b[18];
+        d.loop = b[19];
+        d.retrigger = b[20];
+        d.r = b[21];
+        d.g = b[22];
+        d.b = b[23];
+        d.motionThresholdPct = b[24];
+        d.lfoPeriodMs = (uint16_t)b[25] * 20;
+        if (d.lfoPeriodMs == 0) {
+          d.lfoPeriodMs = 2000;
+        }
+        d.attackMs = 20;
+        d.releaseMs = 400;
+        if (d.effect == 5) {
+          // v7 had a Glow *effect*. It was always a Flash on a slow clock, so
+          // rebuild it that way: same look, orthogonal controls.
+          d.effect = LayerSettings::kEffectFlash;
+          d.triggers |= kTrigLfo;
+          d.attackMs = (uint16_t)(d.lfoPeriodMs / 4);
+          d.releaseMs = (uint16_t)(d.lfoPeriodMs / 2);
+        }
+        n += 26;
+      }
+    }
   } else if (in[0] == kBlobVersionV6 &&
              len == kSettingsHeaderSize + kPhysBlockSize * kStripCount +
                         kLayerBlockSize * kStripCount * kMaxLayersPerStrip) {
@@ -189,9 +260,6 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
     for (size_t i = 0; i < kStripCount; i++) {
       for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
         decodeLayer(in + n, s.layer[i][l]);
-        if (s.layer[i][l].glowPeriodMs == 0) {
-          s.layer[i][l].glowPeriodMs = 2000; // v6 left byte 25 as zero
-        }
         n += kLayerBlockSize;
       }
     }
@@ -227,7 +295,9 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
         d.g = b[22];
         d.b = b[23];
         d.motionThresholdPct = 30;
-        d.glowPeriodMs = 2000;
+        d.lfoPeriodMs = 2000;
+        d.attackMs = 20;
+        d.releaseMs = 400;
         n += 24;
       }
     }

@@ -11,7 +11,8 @@
 // One travelling light group on one layer.
 struct Blob {
   float pos = 0.0f;  // position along the strip, in LEDs
-  float amp = 0.0f;  // 0..1, falls linearly to nothing over fadeMs
+  float amp = 0.0f;  // 0..1 linear-light amplitude (derived from life)
+  float life = 1.0f; // 1..0 over fadeMs, in *perceived* brightness
   int8_t dir = 1;    // +1 forward, -1 reverse (ping-pong and centre bursts)
   uint8_t burst = 0; // 1 = spawned from the strip centre outward
   // Optional per-blob colour, used by the whip (colour follows the swing
@@ -74,7 +75,8 @@ private:
   Blob blobs_[kMaxBlobs];
   float flashAmp_ = 0.0f;
   float sparkleAmp_ = 0.0f;
-  float glowPhase_ = 0.0f; // 0..1 through the breathing cycle
+  float lfoPhase_ = 0.0f;        // 0..1 through the metronome period
+  uint32_t flashReleaseAtMs_ = 0; // when the flash starts falling
   float peak_ = 0.0f;
   uint32_t sparkleSeed_ = 1;
   uint32_t lastSpawnMs_ = 0;

@@ -130,6 +130,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=card>
 <div class="row first"><span>Physical strip</span><b id=tabhint style="color:#8b949e;font-weight:400;font-size:.76rem"></b></div>
 <div class=seg id=pick></div>
+<div class=row style="margin-top:10px"><span>Strip brightness</span><b id=brightnessPctv>-</b></div>
+<input type=range id=brightnessPct min=1 max=100 step=1>
+<div class=row><span>Bleed / blur</span><b id=bleedPctv>-</b></div>
+<input type=range id=bleedPct min=0 max=100 step=1>
 <div class="row" style="margin-top:12px"><span>Light layers inside</span><b id=lcv>-</b></div>
 <div class=seg id=layertabs></div>
 <div class=rline style="margin-top:8px">
@@ -163,7 +167,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 
 <script>
 var S=0,L=0,ST=null,BUILT=false,SEEDED=false,TRIG=1,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0,SOLO=-1;
-var TB={thr:1,beat:2,tap:4,accel:8,gyro:16};
+var TB={thr:1,beat:2,tap:4,accel:8,gyro:16,lfo:32};
 var CUR_COL='#ff6a00',WHEEL_BG=null,WX=76,WY=76,WDRAG=false,TDRAG=-1,MSGTMR=0;
 var INFLIGHT=false,POLL_BUSY=false,LAST=null,PTMR=0,AFTER=null,HOLD_TMRS={};
 
@@ -419,11 +423,14 @@ function build(){
   +'<button type=button class=chip id=trig_tap>Tap pads</button>'
   +'<button type=button class=chip id=trig_accel>Accelerometer</button>'
   +'<button type=button class=chip id=trig_gyro>Gyroscope</button>'
+  +'<button type=button class=chip id=trig_lfo>LFO</button>'
   +'</div>'
   +'<div class=row><span id=mtlbl>Band level &amp; threshold</span><b id=mt0>0%</b></div>'
   +'<div class=bar id=bar0><i id=mb0></i><u id=mu0></u></div>'
   +'<div id=beatpanel style="display:none"><div class=row><span>Beat sensitivity</span><b id=beatSensitivityPctv>-</b></div>'
   +'<input type=range id=beatSensitivityPct min=0 max=100 step=1></div>'
+  +'<div id=trig_lfopanel style="display:none"><div class=row><span>LFO period</span><b id=lfoPeriodMsv>-</b></div>'
+  +'<input type=range id=lfoPeriodMs min=100 max=5000 step=50></div>'
   +'<div id=trig_motion style="display:none"><div class=row><span>Motion threshold</span><b id=motionThresholdPctv>-</b></div>'
   +'<input type=range id=motionThresholdPct min=0 max=100 step=1></div>'
   +'<div id=trig_freq></div>';
@@ -447,7 +454,7 @@ function build(){
  $('beatSensitivityPct').addEventListener('change',flush);
  // The chips are static markup: generating them from JS meant that any earlier
  // error left the row empty, which looked exactly like a missing trigger.
- var CHIPS=[['thr','Threshold'],['beat','Auto beat'],['tap','Tap pads'],['accel','Accelerometer'],['gyro','Gyroscope']];
+ var CHIPS=[['thr','Threshold'],['beat','Auto beat'],['tap','Tap pads'],['accel','Accelerometer'],['gyro','Gyroscope'],['lfo','LFO']];
  CHIPS.forEach(function(c){
   $('trig_'+c[0]).onclick=function(){
    TRIG=(TRIG^TB[c[0]]);
@@ -455,10 +462,10 @@ function build(){
    sendLayer('triggers',TRIG);flush();
   };
  });
- $('motionThresholdPct').addEventListener('input',function(){
-  labels();sendLayer('motionThresholdPct',$('motionThresholdPct').value);
+ ['motionThresholdPct','lfoPeriodMs'].forEach(function(k){
+  $(k).addEventListener('input',function(){labels();sendLayer(k,$(k).value);});
+  $(k).addEventListener('change',flush);
  });
- $('motionThresholdPct').addEventListener('change',flush);
 
  /* ---- display: colour + intensity (layer), brightness (physical) ---- */
  var dbox=$('dispbox');
@@ -480,7 +487,11 @@ function build(){
  wh.addEventListener('pointerup',function(e){if(!WDRAG)return;WDRAG=false;pickWheel(e,true);});
  wh.addEventListener('pointercancel',function(){WDRAG=false;flush();});
  bindLayerRange($('spanel'),[{k:'intensityPct',n:'Layer intensity',min:1,max:100,st:1,u:'%'}]);
- bindPhysRange($('spanel'),[{k:'brightnessPct',n:'Strip max brightness',min:1,max:100,st:1,u:'%'}]);
+ // Strip-level controls live in the strip card, directly under the strip tabs.
+ ['brightnessPct','bleedPct'].forEach(function(k){
+  $(k).addEventListener('input',function(){labels();sendPhys(k,$(k).value);});
+  $(k).addEventListener('change',flush);
+ });
 
  /* ---- animation (per layer) ---- */
  var abox=$('animbox');
@@ -489,8 +500,7 @@ function build(){
   +'<button type=button class="chip" id=ef1>Flash</button>'
   +'<button type=button class="chip" id=ef2>Burst</button>'
   +'<button type=button class="chip" id=ef3>Sparkle</button>'
-  +'<button type=button class="chip" id=ef4>Whip</button>'
-  +'<button type=button class="chip" id=ef5>Glow</button></div>'
+  +'<button type=button class="chip" id=ef4>Whip</button></div>'
   +'<div class=row><span>Topology</span><b></b></div>'
   +'<div class=seg><button id=lp1>Loop</button><button id=lp0>One-shot</button></div>'
   +'<div class=row><span>Direction</span><b></b></div>'
@@ -500,20 +510,21 @@ function build(){
  $('ef2').onclick=function(){EFF=2;setEff();refreshTitle();sendLayer('effect',2);flush();};
  $('ef3').onclick=function(){EFF=3;setEff();refreshTitle();sendLayer('effect',3);flush();};
  $('ef4').onclick=function(){EFF=4;setEff();refreshTitle();sendLayer('effect',4);flush();};
- $('ef5').onclick=function(){EFF=5;setEff();refreshTitle();sendLayer('effect',5);flush();};
  $('lp1').onclick=function(){LOOP=1;setLoop();refreshTitle();sendLayer('loop',1);flush();};
  $('lp0').onclick=function(){LOOP=0;setLoop();refreshTitle();sendLayer('loop',0);flush();};
  $('d0').onclick=function(){REV=0;setDir();refreshTitle();sendLayer('reverse',0);flush();};
  $('d1').onclick=function(){REV=1;setDir();refreshTitle();sendLayer('reverse',1);flush();};
  $('d2').onclick=function(){REV=2;setDir();refreshTitle();sendLayer('reverse',2);flush();};
  abox.insertAdjacentHTML('beforeend',
-  '<div id=glowrow style="display:none">'
-  +'<div class=row><span>Glow period</span><b id=glowPeriodMsv>-</b></div>'
-  +'<input type=range id=glowPeriodMs min=200 max=5000 step=50></div>');
- $('glowPeriodMs').addEventListener('input',function(){
-  labels();sendLayer('glowPeriodMs',$('glowPeriodMs').value);
+  '<div id=flashgroup style="display:none">'
+  +'<div class=row><span>Attack</span><b id=attackMsv>-</b></div>'
+  +'<input type=range id=attackMs min=0 max=2000 step=10>'
+  +'<div class=row><span>Release</span><b id=releaseMsv>-</b></div>'
+  +'<input type=range id=releaseMs min=10 max=5000 step=10></div>',);
+ ['attackMs','releaseMs'].forEach(function(k){
+  $(k).addEventListener('input',function(){labels();sendLayer(k,$(k).value);});
+  $(k).addEventListener('change',flush);
  });
- $('glowPeriodMs').addEventListener('change',flush);
  ANIMSPEC.forEach(function(s){
   if(s.k==='retriggerMs'){
    abox.insertAdjacentHTML('beforeend',
@@ -584,7 +595,7 @@ function build(){
 
 function dirName(r){return r===2?'ping-pong':(r===1?'reverse':'forward');}
 function modeName(m){return m===2?'manual':(m===1?'auto beat':'threshold');}
-function effName(e){return e===5?'glow':(e===4?'whip':(e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet'))))};
+function effName(e){return e===4?'whip':(e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet')))};
 
 function refreshTitle(){
  var c=cur(),p=phys();
@@ -598,6 +609,7 @@ function refreshTitle(){
  if(TRIG&TB.tap)tl.push('tap');
  if(TRIG&TB.accel)tl.push('accel');
  if(TRIG&TB.gyro)tl.push('gyro');
+ if(TRIG&TB.lfo)tl.push('lfo');
  var trig=tl.length?tl.join('+'):'no trigger';
  $('ptitle').innerHTML=nameOf(S)+' &middot; Layer '+(L+1)+'<small>'
   +(c.enabled?'on':'off')+' &middot; '+trig+' &middot; '+effName(EFF)
@@ -624,19 +636,23 @@ function labels(){
  if($('beatSensitivityPctv'))$('beatSensitivityPctv').textContent=$('beatSensitivityPct').value+'%';
  if($('motionThresholdPctv'))$('motionThresholdPctv').textContent=$('motionThresholdPct').value+'%';
  if($('intensityPctv'))$('intensityPctv').textContent=$('intensityPct').value+'%';
- if($('glowPeriodMsv'))$('glowPeriodMsv').textContent=$('glowPeriodMs').value+' ms';
+ if($('lfoPeriodMsv'))$('lfoPeriodMsv').textContent=$('lfoPeriodMs').value+' ms';
+ if($('attackMsv'))$('attackMsv').textContent=$('attackMs').value+' ms';
+ if($('releaseMsv'))$('releaseMsv').textContent=$('releaseMs').value+' ms';
+ if($('brightnessPctv'))$('brightnessPctv').textContent=$('brightnessPct').value+'%';
+ if($('bleedPctv'))$('bleedPctv').textContent=$('bleedPct').value+'%';
  if($('brightnessPctv'))$('brightnessPctv').textContent=$('brightnessPct').value+'%';
  if($('ledCountv'))$('ledCountv').textContent=$('ledCount').value;
  refreshTitle();
 }
 
 function setTriggers(){
- ['thr','beat','tap','accel','gyro'].forEach(function(k){
+ ['thr','beat','tap','accel','gyro','lfo'].forEach(function(k){
   var b=$('trig_'+k);
   if(!b)return;
   var on=(TRIG&TB[k])?1:0;
   b.className='chip'+(on?' on':'');
-  b.textContent=(on?'\u2713 ':'')+({thr:'Threshold',beat:'Auto beat',tap:'Tap pads',accel:'Accelerometer',gyro:'Gyroscope'})[k];
+  b.textContent=(on?'\u2713 ':'')+({thr:'Threshold',beat:'Auto beat',tap:'Tap pads',accel:'Accelerometer',gyro:'Gyroscope',lfo:'LFO'})[k];
  });
  var hasThr=(TRIG&TB.thr)?1:0, hasBeat=(TRIG&TB.beat)?1:0;
  var hasMotion=(TRIG&(TB.accel|TB.gyro))?1:0;
@@ -647,23 +663,23 @@ function setTriggers(){
  $('bar0').style.cursor=hasThr?'ew-resize':'default';
  $('beatpanel').style.display=hasBeat?'':'none';
  $('trig_motion').style.display=hasMotion?'':'none';
+ $('trig_lfopanel').style.display=(TRIG&TB.lfo)?'':'none';
  $('trig_freq').style.display=(hasThr||hasBeat)?'':'none';
  if($('thint')){
   var n=0;
   for(var k in TB)if(TRIG&TB[k])n++;
   if(n){
    $('thint').textContent=n+' source'+(n>1?'s':'')+' armed — fires on whichever happens first'
-    +(EFF===5?'; glow also breathes on its own, a trigger just adds a boost':'');
+ 
   }else{
-   $('thint').textContent=EFF===5
-    ?'glow breathes on its own — no trigger needed (tick one to add a boost)'
-    :'nothing armed: this layer is silent until you tick a source';
+   $('thint').textContent='nothing armed: this layer is silent until you tick a source';
   }
  }
 }
 function setEff(){
- for(var i=0;i<6;i++)if($('ef'+i))$('ef'+i).className='chip'+(EFF===i?' on':'');
- if($('glowrow'))$('glowrow').style.display=EFF===5?'':'none';
+ for(var i=0;i<5;i++)if($('ef'+i))$('ef'+i).className='chip'+(EFF===i?' on':'');
+ // A flash's attack/release are what turn it into a strobe or into a glow.
+ if($('flashgroup'))$('flashgroup').style.display=EFF===1?'':'none';
 }
 function setDir(){$('d0').className=REV===0?'sel':'';$('d1').className=REV===1?'sel':'';$('d2').className=REV===2?'sel':'';}
 function setLoop(){$('lp1').className=LOOP?'sel':'';$('lp0').className=LOOP?'':'sel';}
@@ -704,9 +720,12 @@ function fillInputs(){
  });
  $('beatSensitivityPct').value=c.beatSensitivityPct;
  $('motionThresholdPct').value=c.motionThresholdPct;
- $('glowPeriodMs').value=c.glowPeriodMs;
+ $('lfoPeriodMs').value=c.lfoPeriodMs;
+ $('attackMs').value=c.attackMs;
+ $('releaseMs').value=c.releaseMs;
  $('intensityPct').value=c.intensityPct;
  $('brightnessPct').value=p.brightnessPct;
+ $('bleedPct').value=p.bleedPct;
  $('ledCount').value=p.ledCount;
  $('pwr').checked=!!c.enabled;
  $('gainDb').value=ST.gainDb;
@@ -773,6 +792,7 @@ function layModeName(l){
  var t=l.triggers||0;
  if(t&TB.beat)return l.bpm>0?(l.bpm+' BPM'):'beat';
  if(t&(TB.accel|TB.gyro))return 'motion';
+ if(t&TB.lfo)return 'lfo';
  if(t&TB.thr)return 'thr '+l.thresholdPct+'%';
  return 'tap';
 }
@@ -925,9 +945,11 @@ String WebUi::stateJson() const {
     const PhysicalTelemetry &pt = tele_.strip[i];
     appendf(buf, sizeof(buf), n,
             "%s{\"ledCount\":%u,\"brightnessPct\":%u,\"layerCount\":%u,"
-            "\"brightPct\":%u,\"solo\":%d,\"calib\":%u,\"layers\":[",
+            "\"bleedPct\":%u,\"brightPct\":%u,\"solo\":%d,\"calib\":%u,"
+            "\"layers\":[",
             i == 0 ? "" : ",", (unsigned)p.ledCount, (unsigned)p.brightnessPct,
-            (unsigned)p.layerCount, (unsigned)pt.brightPct, (int)soloLayer(i),
+            (unsigned)p.layerCount, (unsigned)p.bleedPct,
+            (unsigned)pt.brightPct, (int)soloLayer(i),
             isCalibrating(i, nowMs) ? 1u : 0u);
 
     for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
@@ -937,8 +959,8 @@ String WebUi::stateJson() const {
               "%s{\"triggers\":%u,\"effect\":%u,\"enabled\":%u,"
               "\"intensityPct\":%u,\"centerHz\":%u,\"widthHz\":%u,"
               "\"thresholdPct\":%u,\"beatSensitivityPct\":%u,"
-              "\"motionThresholdPct\":%u,\"glowPeriodMs\":%u,\"retrigger\":%u,"
-              "\"retriggerMs\":%u,"
+              "\"motionThresholdPct\":%u,\"lfoPeriodMs\":%u,\"attackMs\":%u,"
+              "\"releaseMs\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
               "\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,\"reverse\":%u,"
               "\"loop\":%u,\"color\":\"%02x%02x%02x\",\"levelPct\":%u,"
               "\"brightPct\":%u,\"blobs\":%u,\"beatPct\":%u,\"bpm\":%u}",
@@ -946,8 +968,9 @@ String WebUi::stateJson() const {
               (unsigned)s.enabled, (unsigned)s.intensityPct,
               (unsigned)s.centerHz, (unsigned)s.widthHz,
               (unsigned)s.thresholdPct, (unsigned)s.beatSensitivityPct,
-              (unsigned)s.motionThresholdPct, (unsigned)s.glowPeriodMs,
-              (unsigned)s.retrigger, (unsigned)s.retriggerMs,
+              (unsigned)s.motionThresholdPct, (unsigned)s.lfoPeriodMs,
+              (unsigned)s.attackMs, (unsigned)s.releaseMs, (unsigned)s.retrigger,
+              (unsigned)s.retriggerMs,
               (unsigned)s.blobLeds, (unsigned)s.speed, (unsigned)s.fadeMs,
               (unsigned)s.reverse, (unsigned)s.loop, (unsigned)s.r,
               (unsigned)s.g, (unsigned)s.b, (unsigned)lt.levelPct,
@@ -1027,6 +1050,7 @@ void WebUi::handleParams() {
     applyArg("ledCount", &ps.ledCount);
     applyArg("brightnessPct", &ps.brightnessPct);
     applyArg("layerCount", &ps.layerCount);
+    applyArg("bleedPct", &ps.bleedPct);
 
     // Changing ledCount auto-shows the calibration dot for 3.5 s so the tip of
     // the strip is visible; touching anything else leaves calibration mode.
@@ -1052,7 +1076,9 @@ void WebUi::handleParams() {
       applyArg("triggers", &s.triggers);
       applyArg("effect", &s.effect);
       applyArg("motionThresholdPct", &s.motionThresholdPct);
-      applyArg("glowPeriodMs", &s.glowPeriodMs);
+      applyArg("lfoPeriodMs", &s.lfoPeriodMs);
+      applyArg("attackMs", &s.attackMs);
+      applyArg("releaseMs", &s.releaseMs);
       applyArg("enabled", &s.enabled);
       applyArg("intensityPct", &s.intensityPct);
       applyArg("centerHz", &s.centerHz);

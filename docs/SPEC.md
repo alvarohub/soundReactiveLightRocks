@@ -131,11 +131,29 @@ appears to teleport.
 previous frame:
 
 * travel is the shortest signed distance on a ring, or a plain difference otherwise;
-* `ghosts = 1 + |travel| / 0.6`, capped at 12;
+* `ghosts = 1 + |travel| / (halfWidth / 2)`, capped at 12. The spacing must scale
+  with the blob: a fixed 0.6-LED step put each ghost on a different LED for a 1-LED
+  blob, which produced a dotted line instead of a streak;
 * each ghost carries `amp / ghosts`, so the same light is spread over the streak and
   a fast blob does not get brighter;
-* only one sample is drawn while the blob moves less than 0.6 LED, so slow motion is
-  bit-identical to before.
+* only one sample is drawn while the blob moves less than that step, so slow motion
+  is bit-identical to before.
+
+For very short blobs even that is not enough to look continuous, which is what the
+per-strip **bleed** is for (§7).
+
+### 4.2c Fade shape
+
+`fadeMs` is a **perceived** fade. Gamma is applied once at the output, so decaying
+the light amplitude linearly would display as `amp^2.2` — a fast drop followed by a
+long dim tail. The blob therefore ages a `life` value linearly and derives
+`amp = life^(1/2.2)`, which makes displayed brightness fall linearly with time:
+
+| fraction of `fadeMs` | old (amp linear) | now |
+|---|---|---|
+| 0.25 | 0.53 | 0.75 |
+| 0.50 | 0.22 | 0.50 |
+| 0.75 | 0.05 | 0.25 |
 
 Note that `speed` stays an **absolute** rate (LEDs/s), independent of `blobLeds`: a
 long blob is not slower, it simply moves a smaller fraction of its own length per
@@ -209,6 +227,7 @@ first. The GUI shows them as tickable chips.
 | `kTrigTap` | 4 | fingertip pad (or BtnA test trigger) | — |
 | `kTrigAccel` | 8 | the stick is whipped / shaken | `motionThresholdPct` on \|a\| − 1 g |
 | `kTrigGyro` | 16 | the stick is twisted quickly | `motionThresholdPct` on \|ω\| |
+| `kTrigLfo` | 32 | a free-running metronome, independent of everything | `lfoPeriodMs` |
 
 * `triggers = 0` means the layer is silent: no source can fire it.
 * The pad path is gated by `kTrigTap`, so unticking it really does stop pads from
@@ -239,7 +258,7 @@ Designed for the accelerometer: a blob is launched along the strip and
 | `2` | **Burst** | A shockwave that splits from the strip centre outward toward both ends. |
 | `3` | **Sparkle** | A glittering shower: a pseudo-random subset of LEDs lights up per frame and decays. Holding the pad keeps the shower alive. |
 | `4` | **Whip** | A lash of light whose speed follows the swing strength and whose colour follows the swing direction — see §5.1b. |
-| `5` | **Glow** | Slow breathing that runs **without any trigger**: a raised cosine over `glowPeriodMs` between off and full. This is the sister project's Glow mode. Triggers are optional and add a short boost; if the beat input is armed the wave is re-phased on each beat so the breathing lands with the music. |
+| — | *(no Glow)* | There is deliberately no Glow effect. A **glow** is a **Flash** with a long `attackMs`/`releaseMs` fired by the **LFO** trigger; a strobe is the same with short ones. Trigger and effect stay orthogonal, so any input can drive any shape. |
 
 ### 5.3 Beat detection (per layer)
 
@@ -298,6 +317,7 @@ driver out of range.
 | `ledCount` | 1…1000 | 100 | Actual number of LEDs on this strip (shows the calibration dot at `ledCount-1` while tuning) |
 | `brightnessPct` | 1…100 | 100 | Master output ceiling for the whole strip, applied after all layers are merged |
 | `layerCount` | 1…4 | 1 | How many light layers are live inside this strip |
+| `bleedPct` | 0…100 | 0 | Spatial bleed: a `[1,2,1]/4` convolution over the **merged** frame before gamma, repeated up to 3× at 100 %. Makes very short blobs read as soft bumps |
 
 ### Per light layer (the glowing object)
 
@@ -312,7 +332,9 @@ driver out of range.
 | `thresholdPct` | 0…100 | 35 / 40 | Level that fires the effect in **Threshold** mode (drag the white marker) |
 | `beatSensitivityPct` | 0…100 | 55 | Detector eagerness for the beat input |
 | `motionThresholdPct` | 0…100 | 30 | Gate for the accelerometer/gyroscope inputs |
-| `glowPeriodMs` | 200…5000 | 2000 | One dim → bright → dim cycle for the **Glow** effect |
+| `attackMs` | 0…2000 | 20 | How fast a **Flash** rises |
+| `releaseMs` | 10…5000 | 400 | How slowly a **Flash** falls |
+| `lfoPeriodMs` | 100…5000 | 2000 | Metronome period for the **LFO** trigger |
 | `retrigger` | 0/1 | 1 | `1` = retrigger after `retriggerMs`, `0` = single (wait until idle) |
 | `retriggerMs` | 0…2000 | 300 | Minimum gap between effects on this layer |
 | `blobLeds` | 1…1000 | 8 / 5 | Length of the light group (jet / burst) |
@@ -350,6 +372,8 @@ it when the slider is released.
   previews one layer alone.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
+* Strip-level controls sit **directly under the Strip 1 / Strip 2 buttons**, before
+  the layer list: `Strip brightness`, `Bleed / blur`, then `Light layers inside`.
 * The page header shows the **firmware version** (`LightRocks-1 · 192.168.4.1 · v0.7`)
   so it is obvious whether an upload actually took.
 * **Trigger inputs** are five tickable chips (`Threshold`, `Auto beat`, `Tap pads`,
