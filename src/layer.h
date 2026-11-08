@@ -19,6 +19,7 @@ struct Blob {
   uint8_t custom = 0;
   uint8_t cr = 255, cg = 255, cb = 255;
   float speedScale = 1.0f; // whip: faster travel for a harder swing
+  float prevPos = 0.0f;    // position at the previous frame, for motion blur
   bool active = false;
 };
 
@@ -64,6 +65,11 @@ private:
   void spawnJet(const LayerSettings &s, uint16_t ledCount);
   void spawnBurst(const LayerSettings &s, uint16_t ledCount);
   void spawnWhip(const LayerSettings &s, uint16_t ledCount);
+  // Draws one blob, sweeping the path it covered since the last frame so a fast
+  // blob streaks instead of jumping between positions.
+  void drawBlob(LedStrip &strip, const Blob &blob, float halfWidth,
+                float weight, uint8_t r, uint8_t g, uint8_t b,
+                bool wrapSeam) const;
 
   Blob blobs_[kMaxBlobs];
   float flashAmp_ = 0.0f;

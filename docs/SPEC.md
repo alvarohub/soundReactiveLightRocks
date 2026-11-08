@@ -120,6 +120,27 @@ These rules apply to the **Jet** and **Burst** effects.
   zero at the edges. This avoids the hard edges of a square pulse and keeps the
   motion looking smooth at any speed.
 
+### 4.2b Motion blur (sub-frame sweep)
+
+The render loop samples **one position per audio frame** (~31 fps). That is only
+enough while the blob moves less than its own width per frame: at 500 LED/s it
+advances ~16 LEDs, so with a small blob consecutive frames do not touch and it
+appears to teleport.
+
+`LayerEngine::drawBlob()` therefore sweeps the path the blob covered since the
+previous frame:
+
+* travel is the shortest signed distance on a ring, or a plain difference otherwise;
+* `ghosts = 1 + |travel| / 0.6`, capped at 12;
+* each ghost carries `amp / ghosts`, so the same light is spread over the streak and
+  a fast blob does not get brighter;
+* only one sample is drawn while the blob moves less than 0.6 LED, so slow motion is
+  bit-identical to before.
+
+Note that `speed` stays an **absolute** rate (LEDs/s), independent of `blobLeds`: a
+long blob is not slower, it simply moves a smaller fraction of its own length per
+frame, which reads as slower.
+
 ### 4.3 Lifetime
 
 * Every blob ages. Amplitude falls linearly from 1 to 0 over `fadeMs`, then the blob

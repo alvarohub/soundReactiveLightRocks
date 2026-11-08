@@ -6,6 +6,7 @@
 
 Related documents:
 - [docs/SPEC.md](./SPEC.md) — Functional specification & parameter tables
+- [docs/IDEAS.md](./IDEAS.md) — running list of ideas, libraries and results worth keeping
 - [docs/ARCHITECTURE.md](./ARCHITECTURE.md) — Signal chain, frame loop, & design rationale
 - [docs/JOURNAL.md](./JOURNAL.md) — Chronological engineering log & future exploration notes
 
@@ -134,6 +135,15 @@ Implemented exactly as planned:
 - `main.cpp` does `clear() → for each live layer (respecting solo) update+render → show()`.
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
+
+### Fast blobs must be swept, not sampled (2026-11-08)
+At ~31 fps a blob at 500 LED/s moves ~16 LEDs per frame, so a small blob appeared to
+teleport. `LayerEngine::drawBlob()` now draws up to 12 ghosts along the path covered
+since `prevPos`, each with `amp / ghosts`. Keep it that way: a single sample per frame
+aliases badly at high speed.
+
+Also note `speed` is deliberately **absolute** (LEDs/s) and does not scale with
+`blobLeds` — see SPEC §4.2b before "fixing" that.
 
 ### The trigger chips must stay in static markup (2026-11-08)
 The five trigger chips were generated from JavaScript. When the user reported "I

@@ -626,6 +626,57 @@ there and is mapped to the 2 s default.
   hint correctly reads "glow breathes on its own — no trigger needed".
 - Both envs build with no warnings.
 
+## 2026-11-08 (later still) — Why big blobs look slow, and sub-frame motion blur
+
+### Two observations, one real defect
+
+1. "The larger the blob, the slower it moves for the same speed (LEDs/sec)."
+2. "When the speed is large, the blob seems to jump between positions, not even
+   overlapping."
+
+**#1 is not a bug.** `b.pos` advances at exactly `speed` LEDs/s whatever
+`blobLeds` is. But at 31 fps a blob at 45 LED/s moves 1.44 LEDs per frame: that is
+18 % of an 8-LED blob's width and 2.4 % of a 60-LED blob's. Same absolute rate, very
+different relative motion, so the wide one reads as crawling. It also fades over
+`fadeMs` before it has visibly travelled its own length. Kept the semantics and
+documented them; noted "blob lengths per second" as an alternative unit in IDEAS.md.
+
+**#2 is temporal aliasing.** At 500 LED/s the blob advances ~16 LEDs per frame. With
+an 8-LED blob, consecutive frames do not touch, so it strobes.
+
+Fix: `LayerEngine::drawBlob()` sweeps the path between `prevPos` and `pos`:
+
+* travel measured the shortest way round a ring, plain difference otherwise;
+* `ghosts = 1 + |travel| / 0.6`, capped at 12;
+* each ghost carries `amp / ghosts`, so the light is spread over the streak and a
+  fast blob does not get brighter;
+* a blob moving < 0.6 LED per frame still draws exactly one copy, so slow motion is
+  unchanged.
+
+Verified on the host that ghost spacing stays below the blob width for every
+speed/blob combination in range (2.02 LEDs at 500 LED/s for the worst case, against
+a 4-LED blob), i.e. the streak is continuous rather than dotted.
+
+### Continuous positions
+
+The user suggested a continuous blob position with distance-based spatial decay at
+render time. That is already the design: `Blob::pos` is a float, and `addRing()`
+computes `d = ledIndex - centerPos` per LED and shapes a raised cosine on `|d|`.
+What was missing was sampling the *path*, not the position — now added.
+
+### BLE vs Wi-Fi
+
+Answered in detail in [IDEAS.md](./IDEAS.md): the ESP32-S3 has **BLE only** (no
+Classic BT), so A2DP audio is impossible on the StickS3; Wi-Fi AP + HTTP remains the
+only zero-install calibration path (iOS Safari has no Web Bluetooth); the strong case
+for BLE here is **BLE MIDI** as a *separate* performance input. Wi-Fi and Bluetooth
+share the radio and cannot both run at full duty.
+
+### New
+
+[docs/IDEAS.md](./IDEAS.md) — running list of ideas, libraries and results, as
+requested, so nothing is lost between sessions.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

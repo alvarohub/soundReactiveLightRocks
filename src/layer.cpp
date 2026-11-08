@@ -81,6 +81,7 @@ void LayerEngine::spawnJet(const LayerSettings &s, uint16_t ledCount) {
   b.active = true;
   b.amp = 1.0f;
   b.pos = initialPos(s, ledCount);
+  b.prevPos = b.pos;
   b.dir = initialDir(s);
   b.burst = 0;
 }
@@ -92,6 +93,7 @@ void LayerEngine::spawnBurst(const LayerSettings &s, uint16_t ledCount) {
     b.active = true;
     b.amp = 1.0f;
     b.pos = center;
+    b.prevPos = center;
     b.dir = dir;
     b.burst = 1;
   }
@@ -109,6 +111,7 @@ void LayerEngine::spawnWhip(const LayerSettings &s, uint16_t ledCount) {
   b.burst = 0;
   b.dir = dir;
   b.pos = dir > 0 ? 0.0f : (ledCount > 1 ? (float)(ledCount - 1) : 0.0f);
+  b.prevPos = b.pos;
   b.custom = 1;
   hueToRgb(motion_.hue(), b.cr, b.cg, b.cb);
 
@@ -240,6 +243,10 @@ void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion
     if (!b.active) {
       continue;
     }
+
+    // Remember where this blob was, so render() can sweep the path it covers
+    // in this frame instead of drawing a single position.
+    b.prevPos = b.pos;
 
     if (b.burst) {
       // Centre-outward shockwave: each half races from the middle to its end.
@@ -400,12 +407,61 @@ void LayerEngine::render(LedStrip &strip, const LayerSettings &s) {
     const uint8_t rr = b.custom ? b.cr : s.r;
     const uint8_t gg = b.custom ? b.cg : s.g;
     const uint8_t bb = b.custom ? b.cb : s.b;
-    strip.addRing(b.pos, halfWidth, b.amp, w, rr, gg, bb,
-                  b.burst ? false : wrapSeam);
+    drawBlob(strip, b, halfWidth, w, rr, gg, bb, b.burst ? false : wrapSeam);
     const float peakAmp = powf(b.amp, kRenderGamma) * shown;
     if (peakAmp > peak_) {
       peak_ = peakAmp;
     }
+  }
+}
+
+void LayerEngine::drawBlob(LedStrip &strip, const Blob &b, float halfWidth,
+                           float weight, uint8_t r, uint8_t g, uint8_t bb,
+                           bool wrapSeam) const {
+  const uint16_t ledCount = strip.count();
+  // How far did it travel since the previous frame? On a ring the shortest way
+  // round, otherwise a straight difference.
+  const float laps = (float)ledCount;
+  float travel = b.pos - b.prevPos;
+  if (wrapSeam && laps > 1.0f) {
+    while (travel > laps * 0.5f) {
+      travel -= laps;
+    }
+    while (travel < -laps * 0.5f) {
+      travel += laps;
+    }
+  }
+
+  // Sub-frame ghosts. One sample per frame is only fine while the blob moves
+  // less than its own width; past that, consecutive frames stop touching and it
+  // reads as teleporting. Above 500 LED/s and 31 fps a blob jumps ~16 LEDs.
+  constexpr float kGhostStep = 0.6f; // LEDs between ghosts
+  constexpr int kMaxGhosts = 12;
+  int ghosts = 1 + (int)(fabsf(travel) / kGhostStep);
+  if (ghosts > kMaxGhosts) {
+    ghosts = kMaxGhosts;
+  }
+
+  if (ghosts <= 1) {
+    strip.addRing(b.pos, halfWidth, b.amp, weight, r, g, bb, wrapSeam);
+    return;
+  }
+
+  // The same light spread over the swept path: each ghost carries 1/ghosts of
+  // the amplitude, so a fast blob streaks rather than getting brighter.
+  const float share = b.amp / (float)ghosts;
+  for (int i = 0; i < ghosts; i++) {
+    const float t = (float)(i + 1) / (float)ghosts;
+    float pos = b.prevPos + travel * t;
+    if (wrapSeam && laps > 1.0f) {
+      while (pos < 0.0f) {
+        pos += laps;
+      }
+      while (pos >= laps) {
+        pos -= laps;
+      }
+    }
+    strip.addRing(pos, halfWidth, share, weight, r, g, bb, wrapSeam);
   }
 }
 
