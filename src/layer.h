@@ -68,6 +68,7 @@ private:
   Blob blobs_[kMaxBlobs];
   float flashAmp_ = 0.0f;
   float sparkleAmp_ = 0.0f;
+  float glowPhase_ = 0.0f; // 0..1 through the breathing cycle
   float peak_ = 0.0f;
   uint32_t sparkleSeed_ = 1;
   uint32_t lastSpawnMs_ = 0;

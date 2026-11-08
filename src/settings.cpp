@@ -11,6 +11,7 @@ constexpr char kPresetKeys[SettingsStore::kPresetCount][8] = {
 
 // Older layouts, kept so presets written by earlier firmware still load: their
 // single "strip" becomes layer 0 of that physical strip.
+constexpr uint8_t kBlobVersionV6 = 6;
 constexpr uint8_t kBlobVersionV5 = 5;
 constexpr uint8_t kBlobVersionV4 = 4;
 constexpr uint8_t kBlobVersionV3 = 3;
@@ -63,7 +64,9 @@ inline void encodeLayer(const LayerSettings &s, uint8_t *p) {
   p[22] = s.g;
   p[23] = s.b;
   p[24] = s.motionThresholdPct;
-  p[25] = 0; // spare, keeps the block a round 26 bytes
+  // Byte 25 used to be spare; it now carries the glow period in 20 ms units, so
+  // v6 blobs (which stored 0 there) simply pick the default.
+  p[25] = (uint8_t)((s.glowPeriodMs + 10) / 20);
 }
 
 inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
@@ -86,6 +89,7 @@ inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
   s.g = p[22];
   s.b = p[23];
   s.motionThresholdPct = p[24];
+  s.glowPeriodMs = (uint16_t)p[25] * 20;
 }
 
 // A single old `mode` enum becomes the matching trigger bit.
@@ -174,6 +178,23 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
         n += kLayerBlockSize;
       }
     }
+  } else if (in[0] == kBlobVersionV6 &&
+             len == kSettingsHeaderSize + kPhysBlockSize * kStripCount +
+                        kLayerBlockSize * kStripCount * kMaxLayersPerStrip) {
+    size_t n = kSettingsHeaderSize;
+    for (size_t i = 0; i < kStripCount; i++) {
+      decodePhys(in + n, s.phys[i]);
+      n += kPhysBlockSize;
+    }
+    for (size_t i = 0; i < kStripCount; i++) {
+      for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+        decodeLayer(in + n, s.layer[i][l]);
+        if (s.layer[i][l].glowPeriodMs == 0) {
+          s.layer[i][l].glowPeriodMs = 2000; // v6 left byte 25 as zero
+        }
+        n += kLayerBlockSize;
+      }
+    }
   } else if (in[0] == kBlobVersionV5 &&
              len == kSettingsHeaderSize + kPhysBlockSize * kStripCount +
                         (size_t)24 * kStripCount * kMaxLayersPerStrip) {
@@ -206,6 +227,7 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
         d.g = b[22];
         d.b = b[23];
         d.motionThresholdPct = 30;
+        d.glowPeriodMs = 2000;
         n += 24;
       }
     }

@@ -12,6 +12,7 @@ const char kPage[] PROGMEM = R"PAGE(<!doctype html>
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta http-equiv=cache-control content=no-store>
 <title>Light Rocks</title>
 <style>
 :root{color-scheme:dark}
@@ -412,10 +413,16 @@ function build(){
  /* ---- triggering conditions (per layer) ---- */
  var tbox=$('trigbox');
  tbox.innerHTML='<div class=ptitle id=ttitle>Trigger inputs<small id=thint>tick every source that may fire this layer</small></div>'
-  +'<div class=chips id=trigchips></div>'
+  +'<div class=chips id=trigchips>'
+  +'<button type=button class=chip id=trig_thr>Threshold</button>'
+  +'<button type=button class=chip id=trig_beat>Auto beat</button>'
+  +'<button type=button class=chip id=trig_tap>Tap pads</button>'
+  +'<button type=button class=chip id=trig_accel>Accelerometer</button>'
+  +'<button type=button class=chip id=trig_gyro>Gyroscope</button>'
+  +'</div>'
   +'<div class=row><span id=mtlbl>Band level &amp; threshold</span><b id=mt0>0%</b></div>'
   +'<div class=bar id=bar0><i id=mb0></i><u id=mu0></u></div>'
-  +'<div id=trig_beat style="display:none"><div class=row><span>Beat sensitivity</span><b id=beatSensitivityPctv>-</b></div>'
+  +'<div id=beatpanel style="display:none"><div class=row><span>Beat sensitivity</span><b id=beatSensitivityPctv>-</b></div>'
   +'<input type=range id=beatSensitivityPct min=0 max=100 step=1></div>'
   +'<div id=trig_motion style="display:none"><div class=row><span>Motion threshold</span><b id=motionThresholdPctv>-</b></div>'
   +'<input type=range id=motionThresholdPct min=0 max=100 step=1></div>'
@@ -438,10 +445,9 @@ function build(){
   labels();sendLayer('beatSensitivityPct',$('beatSensitivityPct').value);
  });
  $('beatSensitivityPct').addEventListener('change',flush);
+ // The chips are static markup: generating them from JS meant that any earlier
+ // error left the row empty, which looked exactly like a missing trigger.
  var CHIPS=[['thr','Threshold'],['beat','Auto beat'],['tap','Tap pads'],['accel','Accelerometer'],['gyro','Gyroscope']];
- $('trigchips').innerHTML=CHIPS.map(function(c){
-  return '<button type=button class=chip id=trig_'+c[0]+'>'+c[1]+'</button>';
- }).join('');
  CHIPS.forEach(function(c){
   $('trig_'+c[0]).onclick=function(){
    TRIG=(TRIG^TB[c[0]]);
@@ -483,7 +489,8 @@ function build(){
   +'<button type=button class="chip" id=ef1>Flash</button>'
   +'<button type=button class="chip" id=ef2>Burst</button>'
   +'<button type=button class="chip" id=ef3>Sparkle</button>'
-  +'<button type=button class="chip" id=ef4>Whip</button></div>'
+  +'<button type=button class="chip" id=ef4>Whip</button>'
+  +'<button type=button class="chip" id=ef5>Glow</button></div>'
   +'<div class=row><span>Topology</span><b></b></div>'
   +'<div class=seg><button id=lp1>Loop</button><button id=lp0>One-shot</button></div>'
   +'<div class=row><span>Direction</span><b></b></div>'
@@ -493,11 +500,20 @@ function build(){
  $('ef2').onclick=function(){EFF=2;setEff();refreshTitle();sendLayer('effect',2);flush();};
  $('ef3').onclick=function(){EFF=3;setEff();refreshTitle();sendLayer('effect',3);flush();};
  $('ef4').onclick=function(){EFF=4;setEff();refreshTitle();sendLayer('effect',4);flush();};
+ $('ef5').onclick=function(){EFF=5;setEff();refreshTitle();sendLayer('effect',5);flush();};
  $('lp1').onclick=function(){LOOP=1;setLoop();refreshTitle();sendLayer('loop',1);flush();};
  $('lp0').onclick=function(){LOOP=0;setLoop();refreshTitle();sendLayer('loop',0);flush();};
  $('d0').onclick=function(){REV=0;setDir();refreshTitle();sendLayer('reverse',0);flush();};
  $('d1').onclick=function(){REV=1;setDir();refreshTitle();sendLayer('reverse',1);flush();};
  $('d2').onclick=function(){REV=2;setDir();refreshTitle();sendLayer('reverse',2);flush();};
+ abox.insertAdjacentHTML('beforeend',
+  '<div id=glowrow style="display:none">'
+  +'<div class=row><span>Glow period</span><b id=glowPeriodMsv>-</b></div>'
+  +'<input type=range id=glowPeriodMs min=200 max=5000 step=50></div>');
+ $('glowPeriodMs').addEventListener('input',function(){
+  labels();sendLayer('glowPeriodMs',$('glowPeriodMs').value);
+ });
+ $('glowPeriodMs').addEventListener('change',flush);
  ANIMSPEC.forEach(function(s){
   if(s.k==='retriggerMs'){
    abox.insertAdjacentHTML('beforeend',
@@ -568,7 +584,7 @@ function build(){
 
 function dirName(r){return r===2?'ping-pong':(r===1?'reverse':'forward');}
 function modeName(m){return m===2?'manual':(m===1?'auto beat':'threshold');}
-function effName(e){return e===4?'whip':(e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet')));}
+function effName(e){return e===5?'glow':(e===4?'whip':(e===3?'sparkle':(e===2?'burst':(e===1?'flash':'jet'))))};
 
 function refreshTitle(){
  var c=cur(),p=phys();
@@ -608,6 +624,7 @@ function labels(){
  if($('beatSensitivityPctv'))$('beatSensitivityPctv').textContent=$('beatSensitivityPct').value+'%';
  if($('motionThresholdPctv'))$('motionThresholdPctv').textContent=$('motionThresholdPct').value+'%';
  if($('intensityPctv'))$('intensityPctv').textContent=$('intensityPct').value+'%';
+ if($('glowPeriodMsv'))$('glowPeriodMsv').textContent=$('glowPeriodMs').value+' ms';
  if($('brightnessPctv'))$('brightnessPctv').textContent=$('brightnessPct').value+'%';
  if($('ledCountv'))$('ledCountv').textContent=$('ledCount').value;
  refreshTitle();
@@ -628,17 +645,26 @@ function setTriggers(){
  if($('mt0'))$('mt0').style.display=hasThr?'':'none';
  $('mu0').style.display=hasThr?'':'none';
  $('bar0').style.cursor=hasThr?'ew-resize':'default';
- $('trig_beat').style.display=hasBeat?'':'none';
+ $('beatpanel').style.display=hasBeat?'':'none';
  $('trig_motion').style.display=hasMotion?'':'none';
  $('trig_freq').style.display=(hasThr||hasBeat)?'':'none';
  if($('thint')){
   var n=0;
   for(var k in TB)if(TRIG&TB[k])n++;
-  $('thint').textContent=n?(n+' source'+(n>1?'s':'')+' armed — fires on whichever happens first')
-                        :'nothing armed: this layer is silent until you tick a source';
+  if(n){
+   $('thint').textContent=n+' source'+(n>1?'s':'')+' armed — fires on whichever happens first'
+    +(EFF===5?'; glow also breathes on its own, a trigger just adds a boost':'');
+  }else{
+   $('thint').textContent=EFF===5
+    ?'glow breathes on its own — no trigger needed (tick one to add a boost)'
+    :'nothing armed: this layer is silent until you tick a source';
+  }
  }
 }
-function setEff(){for(var i=0;i<5;i++)if($('ef'+i))$('ef'+i).className='chip'+(EFF===i?' on':'');}
+function setEff(){
+ for(var i=0;i<6;i++)if($('ef'+i))$('ef'+i).className='chip'+(EFF===i?' on':'');
+ if($('glowrow'))$('glowrow').style.display=EFF===5?'':'none';
+}
 function setDir(){$('d0').className=REV===0?'sel':'';$('d1').className=REV===1?'sel':'';$('d2').className=REV===2?'sel':'';}
 function setLoop(){$('lp1').className=LOOP?'sel':'';$('lp0').className=LOOP?'':'sel';}
 function setRetrig(){
@@ -678,6 +704,7 @@ function fillInputs(){
  });
  $('beatSensitivityPct').value=c.beatSensitivityPct;
  $('motionThresholdPct').value=c.motionThresholdPct;
+ $('glowPeriodMs').value=c.glowPeriodMs;
  $('intensityPct').value=c.intensityPct;
  $('brightnessPct').value=p.brightnessPct;
  $('ledCount').value=p.ledCount;
@@ -730,7 +757,7 @@ function live(){
    $('pgb'+q+'_'+lq).style.width=(ly.brightPct||0)+'%';
   }
  }
- if(ST.ssid)$('host').textContent=ST.ssid+' · '+location.host;
+ if(ST.ssid)$('host').textContent=ST.ssid+' · '+location.host+(ST.ver?(' · '+ST.ver):'');
  $('sLvl').textContent=ST.levelPct+'%';
  $('sDb').textContent=ST.dbfs;
  $('sPk').textContent=ST.peakHz+' Hz';
@@ -889,8 +916,9 @@ String WebUi::stateJson() const {
   buf[0] = '\0';
   const uint32_t nowMs = millis();
 
-  appendf(buf, sizeof(buf), n, "{\"ssid\":\"%s\",\"gainDb\":%d,\"strips\":[",
-          kSsid, (int)settings_->gainDb);
+  appendf(buf, sizeof(buf), n,
+          "{\"ssid\":\"%s\",\"ver\":\"%s\",\"gainDb\":%d,\"strips\":[", kSsid,
+          kFirmwareVersion, (int)settings_->gainDb);
 
   for (size_t i = 0; i < kStripCount; i++) {
     const PhysicalStripSettings &p = settings_->phys[i];
@@ -909,7 +937,8 @@ String WebUi::stateJson() const {
               "%s{\"triggers\":%u,\"effect\":%u,\"enabled\":%u,"
               "\"intensityPct\":%u,\"centerHz\":%u,\"widthHz\":%u,"
               "\"thresholdPct\":%u,\"beatSensitivityPct\":%u,"
-              "\"motionThresholdPct\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
+              "\"motionThresholdPct\":%u,\"glowPeriodMs\":%u,\"retrigger\":%u,"
+              "\"retriggerMs\":%u,"
               "\"blobLeds\":%u,\"speed\":%u,\"fadeMs\":%u,\"reverse\":%u,"
               "\"loop\":%u,\"color\":\"%02x%02x%02x\",\"levelPct\":%u,"
               "\"brightPct\":%u,\"blobs\":%u,\"beatPct\":%u,\"bpm\":%u}",
@@ -917,8 +946,8 @@ String WebUi::stateJson() const {
               (unsigned)s.enabled, (unsigned)s.intensityPct,
               (unsigned)s.centerHz, (unsigned)s.widthHz,
               (unsigned)s.thresholdPct, (unsigned)s.beatSensitivityPct,
-              (unsigned)s.motionThresholdPct, (unsigned)s.retrigger,
-              (unsigned)s.retriggerMs,
+              (unsigned)s.motionThresholdPct, (unsigned)s.glowPeriodMs,
+              (unsigned)s.retrigger, (unsigned)s.retriggerMs,
               (unsigned)s.blobLeds, (unsigned)s.speed, (unsigned)s.fadeMs,
               (unsigned)s.reverse, (unsigned)s.loop, (unsigned)s.r,
               (unsigned)s.g, (unsigned)s.b, (unsigned)lt.levelPct,
@@ -1023,6 +1052,7 @@ void WebUi::handleParams() {
       applyArg("triggers", &s.triggers);
       applyArg("effect", &s.effect);
       applyArg("motionThresholdPct", &s.motionThresholdPct);
+      applyArg("glowPeriodMs", &s.glowPeriodMs);
       applyArg("enabled", &s.enabled);
       applyArg("intensityPct", &s.intensityPct);
       applyArg("centerHz", &s.centerHz);

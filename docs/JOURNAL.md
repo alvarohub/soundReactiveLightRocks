@@ -583,6 +583,49 @@ stack-allocated.
   firmware never did) — asked the user.
 - The threshold trigger still has no silence gate.
 
+## 2026-11-08 (later) — Missing chip, Glow effect
+
+### "The auto-beat chip is missing entirely"
+
+Confirmed with the user: not "beats never fire" but *the chip itself was absent*.
+The five chips were built from JavaScript (`$('trigchips').innerHTML = CHIPS.map(...)`),
+so anything that threw earlier in `build()` left the row empty — visually identical
+to a missing trigger, and impossible to reproduce in a mock where everything runs.
+
+Changes:
+* the chips are now **static markup**; the script only attaches handlers and toggles
+  the `on` class. This removes the failure mode entirely rather than chasing it.
+* found and fixed a **duplicate id** in the process: the beat chip and the beat
+  panel had both been `trig_beat` (the panel is now `beatpanel`). A duplicate id is
+  exactly the kind of thing that makes `$('trig_beat')` return the wrong element.
+* the header now shows `kFirmwareVersion` (`v0.7`) and `/api/state` carries `"ver"`,
+  so an upload that did not take is obvious instead of suspected.
+* `<meta http-equiv=cache-control content=no-store>` as belt and braces.
+
+### Glow effect (confirmed request)
+
+The sister project's Glow mode had no equivalent here, so `kEffectGlow = 5`:
+
+* a raised cosine over `glowPeriodMs` (200–5000 ms) between off and full;
+* it advances its **own** phase, so the layer breathes with no trigger at all —
+  that is what "mic independent" means;
+* a trigger adds a short boost on top;
+* if the **beat** input is armed, each beat snaps the wave to its peak
+  (`phase = 0.5`), so the breathing lands with the music instead of drifting.
+
+Storage: instead of growing the blob, byte 25 of the layer block — until now the
+spare byte — carries `glowPeriodMs / 20`. Version bumped to **v7**; a v6 blob has 0
+there and is mapped to the 2 s default.
+
+### Verified
+
+- Static chips render without JS ever touching `innerHTML`; a duplicate-id scan over
+  the generated page reports none.
+- Browser: header shows `· v0.7`, all five chips present, Glow appears in the effect
+  list, the Glow layer shows `Glow period 3000 ms` while a Jet layer hides it, and the
+  hint correctly reads "glow breathes on its own — no trigger needed".
+- Both envs build with no warnings.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

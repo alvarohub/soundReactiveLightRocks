@@ -51,6 +51,7 @@ void LayerEngine::reset() {
   }
   flashAmp_ = 0.0f;
   sparkleAmp_ = 0.0f;
+  glowPhase_ = 0.0f;
   peak_ = 0.0f;
   held_ = false;
   heldMs_ = 0;
@@ -134,6 +135,10 @@ void LayerEngine::triggerEffect(uint8_t effect, const LayerSettings &s,
   case LayerSettings::kEffectWhip:
     spawnWhip(s, ledCount);
     break;
+  case LayerSettings::kEffectGlow:
+    // Glow breathes on its own; a trigger is a brief boost on top of it.
+    flashAmp_ = 1.0f;
+    break;
   case LayerSettings::kEffectJet:
   default:
     spawnJet(s, ledCount);
@@ -171,6 +176,22 @@ void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion
   const uint32_t dtMs = (uint32_t)(dtSec * 1000.0f + 0.5f);
 
   sparkleSeed_ = sparkleSeed_ * 1664525u + 1013904223u + nowMs;
+
+  // Glow is the one effect that does not need a trigger: it advances its own
+  // phase, so the layer breathes continuously (mic and motion independent).
+  if (s.effect == LayerSettings::kEffectGlow) {
+    glowPhase_ += dtSec * 1000.0f / (float)s.glowPeriodMs;
+    if (glowPhase_ >= 1.0f) {
+      glowPhase_ -= floorf(glowPhase_);
+    }
+    // If beats are armed, snap the wave to its peak on each beat so the
+    // breathing lands with the music instead of drifting against it.
+    if ((s.triggers & kTrigBeat) && onBeat) {
+      glowPhase_ = 0.5f; // a raised cosine peaks at half a cycle
+    }
+  } else {
+    glowPhase_ = 0.0f;
+  }
 
   // Safety timeout: if the browser disconnects while holding a pad, release
   // automatically after 2.5 s without a keepalive.
@@ -343,7 +364,18 @@ void LayerEngine::render(LedStrip &strip, const LayerSettings &s) {
   const float w = powf(shown, 1.0f / kRenderGamma);
   peak_ = 0.0f;
 
-  if (flashAmp_ > 0.0f) {
+  if (s.effect == LayerSettings::kEffectGlow) {
+    const float wave = 0.5f - 0.5f * cosf(6.28318531f * glowPhase_);
+    const float amp = wave > 1.0f ? 1.0f : wave;
+    strip.addFill(amp, w, s.r, s.g, s.b);
+    if (amp > peak_) {
+      peak_ = powf(amp, kRenderGamma) * shown;
+    }
+    // A trigger adds a transient boost on top of the breathing.
+    if (flashAmp_ > 0.0f) {
+      strip.addFill(flashAmp_ * 0.6f, w, s.r, s.g, s.b);
+    }
+  } else if (flashAmp_ > 0.0f) {
     strip.addFill(flashAmp_, w, s.r, s.g, s.b);
     peak_ = powf(flashAmp_ > 1.0f ? 1.0f : flashAmp_, kRenderGamma) * shown;
   }

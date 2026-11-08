@@ -41,6 +41,7 @@ struct LayerSettings {
     kEffectBurst = 2,   // shockwave splitting outward from the strip centre
     kEffectSparkle = 3, // glittering shower of sparks
     kEffectWhip = 4,    // whip: speed from |accel|, colour from its direction
+    kEffectGlow = 5,    // slow breathing that runs without any trigger at all
   };
 
   enum DirMode : uint8_t {
@@ -63,6 +64,10 @@ struct LayerSettings {
   // Gate for the motion triggers: |accel| or |gyro| must reach this share of
   // full scale before kTrigAccel / kTrigGyro fires.
   uint8_t motionThresholdPct = 30;
+
+  // Glow only: one full dim -> bright -> dim cycle. Independent of the
+  // microphone, like the sister project's Glow mode.
+  uint16_t glowPeriodMs = 2000;
 
   uint8_t retrigger = 1;      // 1 = gap after retriggerMs, 0 = wait until idle
   uint16_t retriggerMs = 300; // minimum gap between effects on this layer
@@ -131,7 +136,8 @@ inline void clampPhysicalStrip(PhysicalStripSettings &p) {
 inline void clampLayer(LayerSettings &s) {
   s.triggers = (uint8_t)(s.triggers & kAllTriggers);
   s.effect =
-      clampU8(s.effect, LayerSettings::kEffectJet, LayerSettings::kEffectWhip);
+      clampU8(s.effect, LayerSettings::kEffectJet, LayerSettings::kEffectGlow);
+  s.glowPeriodMs = clampU16(s.glowPeriodMs, 200, 5000);
   s.enabled = s.enabled ? 1 : 0;
   s.intensityPct =
       clampU8(s.intensityPct, Settings::kMinIntensityPct, 100);
@@ -269,7 +275,7 @@ constexpr size_t kSettingsHeaderSize = 2; // version, gainDb
 constexpr size_t kSettingsBlobSize =
     kSettingsHeaderSize + kPhysBlockSize * kStripCount +
     kLayerBlockSize * kStripCount * kMaxLayersPerStrip;
-constexpr uint8_t kSettingsBlobVersion = 6;
+constexpr uint8_t kSettingsBlobVersion = 7;
 
 void encodeSettings(const Settings &s, uint8_t *out);
 bool decodeSettings(const uint8_t *in, size_t len, Settings &out);

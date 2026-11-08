@@ -218,6 +218,7 @@ Designed for the accelerometer: a blob is launched along the strip and
 | `2` | **Burst** | A shockwave that splits from the strip centre outward toward both ends. |
 | `3` | **Sparkle** | A glittering shower: a pseudo-random subset of LEDs lights up per frame and decays. Holding the pad keeps the shower alive. |
 | `4` | **Whip** | A lash of light whose speed follows the swing strength and whose colour follows the swing direction — see §5.1b. |
+| `5` | **Glow** | Slow breathing that runs **without any trigger**: a raised cosine over `glowPeriodMs` between off and full. This is the sister project's Glow mode. Triggers are optional and add a short boost; if the beat input is armed the wave is re-phased on each beat so the breathing lands with the music. |
 
 ### 5.3 Beat detection (per layer)
 
@@ -290,6 +291,7 @@ driver out of range.
 | `thresholdPct` | 0…100 | 35 / 40 | Level that fires the effect in **Threshold** mode (drag the white marker) |
 | `beatSensitivityPct` | 0…100 | 55 | Detector eagerness for the beat input |
 | `motionThresholdPct` | 0…100 | 30 | Gate for the accelerometer/gyroscope inputs |
+| `glowPeriodMs` | 200…5000 | 2000 | One dim → bright → dim cycle for the **Glow** effect |
 | `retrigger` | 0/1 | 1 | `1` = retrigger after `retriggerMs`, `0` = single (wait until idle) |
 | `retriggerMs` | 0…2000 | 300 | Minimum gap between effects on this layer |
 | `blobLeds` | 1…1000 | 8 / 5 | Length of the light group (jet / burst) |
@@ -327,6 +329,8 @@ it when the slider is released.
   previews one layer alone.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
+* The page header shows the **firmware version** (`LightRocks-1 · 192.168.4.1 · v0.7`)
+  so it is obvious whether an upload actually took.
 * **Trigger inputs** are five tickable chips (`Threshold`, `Auto beat`, `Tap pads`,
   `Accelerometer`, `Gyroscope`). Several can be armed at once; only the relevant
   controls below are shown (level bar + marker, beat sensitivity, motion
@@ -372,11 +376,12 @@ Unknown arguments are ignored; out-of-range values are clamped.
   them to `live`).
 * **Factory reset** restores the hardcoded defaults from `defaultSettings()` in
   code (never overwritten by user saves) without deleting the 3 preset banks.
-* The settings blob is versioned (`v6`: 4-byte physical block + 26-byte layer block
-  × 4 layers per strip, 210 bytes total) and fixed-layout.
-  A `v5`, `v4` or `v3` blob is migrated automatically on load; an old single
-  `mode` enum becomes the matching trigger bit. Any other version falls back to
-  defaults.
+* The settings blob is versioned (`v7`: 4-byte physical block + 26-byte layer block
+  × 4 layers per strip, 210 bytes total) and fixed-layout. Byte 25 of the layer
+  block, previously spare, now holds the glow period in 20 ms units.
+  A `v6`, `v5`, `v4` or `v3` blob is migrated automatically on load; an old single
+  `mode` enum becomes the matching trigger bit, and a v6 blob's zero glow byte
+  becomes the 2 s default. Any other version falls back to defaults.
 
 ---
 

@@ -43,7 +43,7 @@ built-in microphone.)*
    - **Solo** (runtime-only) previews a single layer.
    - **Trigger inputs (`triggers`, a bitmask, independent per layer)**: threshold 1, beat 2, tap pads 4, accelerometer 8, gyroscope 16. They are **not exclusive** — a layer fires on whichever armed source happens first. Each layer owns its own `BeatDetector`.
    - **Motion** ([src/motion.h](../src/motion.h), [src/motion.cpp](../src/motion.cpp)): reads the on-board IMU once per frame; `swing` is |a| with gravity removed, `twist` is |ω|.
-   - **Effects (`effect`)**: `0` Jet (travelling blob), `1` Flash (whole strip, hold-sustainable), `2` Burst (centre-outward shockwave), `3` Sparkle (glitter shower), `4` Whip (speed from swing strength, colour from swing direction).
+   - **Effects (`effect`)**: `0` Jet (travelling blob), `1` Flash (whole strip, hold-sustainable), `2` Burst (centre-outward shockwave), `3` Sparkle (glitter shower), `4` Whip (speed from swing strength, colour from swing direction), `5` Glow (slow breathing that needs no trigger; a beat re-phases the wave).
    - **Beat detection**: `SpectrumAnalyzer::bandFlux(centerHz, widthHz)` drives a per-strip `BeatDetector` (spectral-flux onset, adaptive `mean + k·σ` threshold from `beatSensitivityPct`, 180 ms refractory, median-IOI tempo folded to 60–170 BPM).
    - **Pad hold**: `setPadHeld()` sustains Flash/Sparkle and re-fires Jet at the retrigger gap; a 2.5 s keepalive timeout releases a pad if the browser disconnects.
    - **Intensity**: each layer's `intensityPct` scales its contribution in `LayerEngine::render()`.
@@ -134,6 +134,16 @@ Implemented exactly as planned:
 - `main.cpp` does `clear() → for each live layer (respecting solo) update+render → show()`.
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
+
+### The trigger chips must stay in static markup (2026-11-08)
+The five trigger chips were generated from JavaScript. When the user reported "I
+don't see the auto-beat trigger", the simplest explanation was that any earlier
+error left the row empty — indistinguishable from a missing trigger. They are now
+plain markup in `kPage`, and the JS only wires handlers and toggles classes.
+
+The header also prints `kFirmwareVersion` (from `config.h`) and `/api/state` carries
+it as `"ver"`, so "did the upload take?" is answerable at a glance. Bump that string
+whenever behaviour changes.
 
 ### Beat detection in silence (fixed 2026-11-07)
 The port had lowered the absolute flux floor to `0.008` (the sister project used

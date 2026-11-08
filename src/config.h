@@ -101,3 +101,8 @@ constexpr int8_t kGainStepDb = 6;
 // ---------------------------------------------------------------------------
 
 constexpr size_t kStateJsonMaxBytes = 4096;
+
+// Shown in the page header so it is obvious which build is running. Bump this
+// whenever behaviour changes; "did my upload take?" is asked more often than one
+// would think.
+constexpr char kFirmwareVersion[] = "v0.7";
