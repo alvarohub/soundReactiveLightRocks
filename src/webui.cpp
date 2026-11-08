@@ -868,7 +868,7 @@ function live(){
   $('mb0').style.width=lvl+'%';
   $('mu0').style.left='calc('+c.thresholdPct+'% - 2px)';
   $('mt0').textContent='lvl '+c.levelPct+'%'
-   +((TRIG&TB.beat)?(' · '+(c.bpm>0?c.bpm+' BPM':'listening')+' · beat '+(c.beatPct||0)+'%'):'')
+   +((TRIG&TB.beat)?(' · '+(c.bpm>0?(c.bpm+' BPM '+(c.beatConf||0)+'%'):'listening')+' · beat '+(c.beatPct||0)+'%'):'')
    +' · '+c.blobs+' active';
   CALIB=p.calib?1:0;setCalib();setSolo();
  }
@@ -1190,6 +1190,8 @@ String WebUi::stateJson() const {
       kvu("beatPct", lt.beatPct);
       comma();
       kvu("bpm", lt.bpm);
+      comma();
+      kvu("beatConf", lt.beatConf);
       appendf(buf, sizeof(buf), n, "}");
     }
     appendf(buf, sizeof(buf), n, "]}");

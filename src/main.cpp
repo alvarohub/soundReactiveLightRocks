@@ -135,6 +135,7 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
       engine.reset();
       lt.levelPct = (uint8_t)(level * 100.0f + 0.5f);
       lt.bpm = beats[i][l].bpm();
+    lt.beatConf = beats[i][l].confidencePct();
       continue;
     }
 
@@ -147,6 +148,7 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
     lt.blobs = (uint8_t)engine.activeCount();
     lt.beatPct = (uint8_t)(beat.pulse * 100.0f + 0.5f);
     lt.bpm = beats[i][l].bpm();
+    lt.beatConf = beats[i][l].confidencePct();
   }
 
   // Calibration shows only the physical tip, so it replaces the merged frame.

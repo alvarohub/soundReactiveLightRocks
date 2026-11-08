@@ -1057,6 +1057,37 @@ the wheel recoloured the layer by itself.
 * Threshold drag replayed with real pointer events: posts `thresholdPct=62`,
   `TDRAG` returns to -1, no latched state.
 
+## 2026-11-08 (night) — A beat detector instead of a beat guess
+
+The old detector (a port of the sister project) was onset + adaptive threshold +
+median of the last 8 intervals. It reported the *jitter of its own intervals*, had
+no idea what a beat grid was, and could not survive a masked beat or refuse an
+off-beat. Rewritten in `src/beat.cpp` as a tracker:
+
+| stage | what it does | why |
+|---|---|---|
+| conditioning | flux / running average, then `log1p` | level and gain invariance; tested 36 dB down |
+| peak picking | local max + `mean + k·dev` + a required **rise** | noise is all local maxima and no rises |
+| tempo | IOI histogram, exact halves/thirds folded in, accented onsets also vote from the previous accent | masked beats still vote for the real period; swing votes 600, not 400 |
+| correction | metrical prior + "is 2× nearly as well supported?" | defeats the 200-vs-100 octave error |
+| grid | phase-locked loop at the period, onsets pull the phase | a beat survives a swallowed onset; off-beats cannot double the tempo |
+| lock | **grid-fit** over the last 8 onsets with a free phase | music scores 0.7–1.0, noise ~0.24; a swing (half off-beat) still locks |
+| period | measured from onset times over ~8 beats while locked | 120 BPM reads 120, not 119 |
+
+The offline suite (`test/beat_test.cpp`) drove every decision. It caught, in order:
+the detector being blind below an absolute flux floor, a masked beat breaking the
+lock, the octave error on syncopation, a tempo change never re-locking, swing never
+locking at all (half its onsets are off-grid, so a streak-based lock could never
+work), and the histogram and the phase loop fighting over the period.
+
+Final numbers (all 14 checks green): 60/90/120/128/150 BPM exact, -36 dB identical,
+noise locks never, masked beat 100 with 15 predicted beats, syncopation 101, swing
+98, tempo change 90 -> 141, silence after music clean, beat timing within 56 ms
+(under two 32 ms frames).
+
+Visible surface: the phone shows `118 BPM 99%` when locked and `listening` when not,
+where the percentage is the grid-fit quality (`beatConf` in `/api/state`).
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

@@ -136,6 +136,30 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### The beat detector is a tracker, and it has an offline test (2026-11-08)
+`beat.cpp` is Arduino-free on purpose, and `test/beat_test.cpp` drives it with
+synthetic onsets. Run it after any change:
+
+```
+g++ -std=c++17 -O2 test/beat_test.cpp src/beat.cpp -o /tmp/beat_test && /tmp/beat_test
+```
+
+It fails (exit 1) on: a tempo more than 4 BPM off, a case that no longer locks,
+beats leaking after the music stops, or beat timing worse than two frames. Cases
+covered: silence, 60/90/120/128/150 BPM, a 36 dB quieter signal, noise, a masked
+beat, weak/missing off-beats, swing, a tempo change, stopping, timing.
+
+Invariants worth keeping:
+* the onset function is **normalised by its own running average and log-compressed**,
+  so nothing downstream may depend on the absolute flux or the mic gain;
+* **an onset must be a rise, not just a local maximum** — that is what noise fails;
+* the tempo histogram votes for *exact* halves and thirds only, and accented onsets
+  also vote from the previous accent, which is what defeats the octave error;
+* **the lock is a grid-fit test, not a streak**: half of a swing sits off the beat,
+  so a streak can never lock it, and a streak on noise can lock falsely;
+* while locked, the period is measured from onset times over ~8 beats; letting the
+  10 ms histogram also write the period makes the two fight and the BPM jitter.
+
 ### The state JSON is built one key per call, and format-checked (2026-11-08)
 `stateJson()` used to be a couple of long `appendf` calls with 28 positional
 arguments. When `softnessPct` was added to the format string the matching argument

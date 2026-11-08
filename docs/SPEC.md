@@ -4,7 +4,7 @@
 > happens to do today. When behaviour and this file disagree, one of them is a bug.
 > Progress against this spec is tracked in [JOURNAL.md](./JOURNAL.md).
 
-Status: **v0.5 — physical strips as containers for up to 4 light layers, five non-exclusive trigger inputs (threshold, beat, pads, accelerometer, gyroscope), five effects including the whip, per-layer intensity, solo preview, per-layer pad view, M5StickS3 + M5StickC Plus2**.
+Status: **v0.6 — physical strips as containers for up to 4 light layers, five non-exclusive trigger inputs (threshold, beat, pads, accelerometer, gyroscope), five effects including the whip, per-layer intensity, solo preview, per-layer pad view, M5StickS3 + M5StickC Plus2**.
 
 ---
 
@@ -299,29 +299,61 @@ Designed for the accelerometer: a blob is launched along the strip and
 
 ### 5.3 Beat detection (per layer)
 
-Standard onset detection, running at the ~31 fps analysis rate:
+Three stages, running at the ~31 fps analysis rate:
 
 ```
-audio frame → FFT → band-limited spectral flux → adaptive threshold → onset
-                                             ↓
-                          inter-onset intervals → median → BPM
+audio frame -> FFT -> band flux -> whitening + log -> peak pick -> onset
+                                                        |
+                                      inter-onset histogram -> period
+                                                        |
+                                    phase-locked beat grid -> beat
 ```
 
 * **Onset function**: `bandFlux()` sums only the *positive* frame-to-frame magnitude
   change inside `center ± width/2`, normalised for window width so narrow and wide
-  windows trigger comparably. It is deliberately **not** scaled by the microphone
-  gain — gain is a display/gating preference, and letting it in meant a negative
-  gain also silenced the detector.
-* **Silence gate**: if the layer's band level is below `0.06` the frame counts as
-  silence and no beat can fire, however the adaptive statistics look. The tempo lock
-  is also dropped immediately, so silence never reports a BPM. The gate compares the
-  level **with the microphone gain removed**, so turning the gain down attenuates
-  what you hear without switching the beat detector off.
-* **Threshold**: adaptive, `mean + k·σ` over a ~900 ms window, with `k` from
-  `beatSensitivityPct` (3.2σ at 0 %, 0.6σ at 100 %).
-* **Refractory**: 180 ms minimum interval (rejects double triggers, caps at 333 BPM).
-* **Tempo**: median of the last 8 inter-onset intervals, folded into 60–170 BPM.
-* **Pulse**: a raised decay (`τ ≈ 120 ms`) published as `beatPct` for the UI meter.
+  windows trigger comparably. Deliberately **not** scaled by the microphone gain:
+  gain is a display/gating preference, and letting it in meant a negative gain also
+  silenced the detector.
+* **Conditioning** (`beat.cpp`): the flux is divided by its own ~1.5 s running
+  average and log-compressed. The same hit then reads the same at any loudness or
+  gain (a signal 36 dB quieter gives an identical result), and a big transient
+  cannot swamp the statistics.
+* **Peak picking** with one frame of lookahead: an onset must be a *local maximum*
+  of the conditioned signal, clear `mean + k·dev` (k from `beatSensitivityPct`,
+  1.7 at 0 % down to 0.7 at 100 %) and *rise* at least 0.55 out of the floor since
+  the last onset. The rise test is what keeps noise from firing: noise is all local
+  maxima but no rise.
+* **Tempo**: an inter-onset interval histogram, 250–2000 ms in 10 ms bins, decayed
+  per onset so a tempo can be forgotten. Each interval also votes for its exact
+  halves and thirds (a missed beat therefore reinforces the real period), and
+  accented onsets additionally vote from the *previous accented* onset — that is
+  what keeps a swing or a syncopated line at its real tempo instead of locking onto
+  the subdivision. A mild metrical prior (centred on 500 ms) and a "is twice as long
+  nearly as well supported?" test suppress the classic octave error.
+* **Beat grid**: a phase-locked loop runs at the estimated period. Onsets pull the
+  phase towards them (gain 0.3); while locked the period is measured directly over
+  the last ~8 beats, which removes the histogram's 10 ms quantisation (120 BPM reads
+  120, not 119).
+* **Locking** is decided by a grid-fit test, not by a streak: the last 8 onsets are
+  fitted to the grid with a free phase offset, and the normalised fit must exceed
+  0.55 (uniformly scattered onsets score ~0.24, music scores 0.7–1.0). A swing can
+  therefore lock even though half of its onsets sit off the beat.
+* **Beats**: while locked, a beat is raised by the *grid*, so a masked or swallowed
+  onset still gives one (`predicted`), and off-beat onsets never double the tempo.
+  Below the lock the detector stays responsive and every onset is a beat. The lock
+  is dropped after repeated off-grid onsets, on silence, or when nothing has landed
+  on the grid for 2.2 periods.
+* **Silence gate**: a band level below `0.06` counts as silence: no beat, and the
+  tempo lock is dropped immediately so silence never reports a BPM. The level is
+  compared **with the microphone gain removed**, so turning the gain down attenuates
+  what you hear without switching the detector off.
+* **Reported**: `bpm` (0 unless locked), `beatConf` (the grid-fit quality, 0–100)
+  and the pulse envelope (`τ ≈ 120 ms`) published as `beatPct`.
+
+`test/beat_test.cpp` drives the detector offline with synthetic onsets: silence,
+60/90/120/128/150 BPM, a 36 dB quieter signal, noise, a masked beat, syncopation,
+swing, a tempo change, stopping, and beat timing. Run it with
+`g++ -std=c++17 -O2 test/beat_test.cpp src/beat.cpp -o /tmp/beat_test && /tmp/beat_test`.
 
 Because every layer has its own detector, two layers inside the *same* physical
 strip can lock to different rhythms — that is where the layered look comes from.
@@ -373,7 +405,7 @@ strip until it is switched on, and four stacked layers give four different bands
 | `centerHz` | 65…7600 | 150 / 1000 | Band centre (strip 1 layer 1 bass, strip 2 layer 1 mids by default) |
 | `widthHz` | 40…16000 | 250 / 1400 | Band width; also the beat detector's listening window |
 | `thresholdPct` | 0…100 | 35 / 40 | Level that fires the effect in **Threshold** mode (drag the white marker) |
-| `beatSensitivityPct` | 0…100 | 55 | Detector eagerness for the beat input |
+| `beatSensitivityPct` | 0…100 | 55 | Detector eagerness: the peak threshold is `mean + k·dev` with k from 1.7 (0 %) down to 0.7 (100 %) |
 | `motionThresholdPct` | 0…100 | 30 | Gate for the accelerometer/gyroscope inputs |
 | `attackMs` | 0…2000 | 20 | How fast a **Flash** rises |
 | `releaseMs` | 10…5000 | 400 | How slowly a **Flash** falls |

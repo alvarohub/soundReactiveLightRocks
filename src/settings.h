@@ -285,6 +285,7 @@ struct LayerTelemetry {
   uint8_t blobs = 0;     // active effects on this layer
   uint8_t beatPct = 0;   // beat pulse envelope
   uint16_t bpm = 0;      // detected tempo in this layer's band (0 = unlocked)
+  uint8_t beatConf = 0;  // how well the onsets fit that tempo grid, 0..100
 };
 
 struct PhysicalTelemetry {
