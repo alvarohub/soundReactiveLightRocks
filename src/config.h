@@ -94,7 +94,9 @@ constexpr char kWifiPassword[] = WIFI_PASSWORD;
 
 constexpr int8_t kMinGainDb = -24;
 constexpr int8_t kMaxGainDb = 18;
-constexpr int8_t kGainStepDb = 6;
+// 3 dB steps: fine enough for the automatic controller to settle without
+// audibly pumping, coarse enough that the slider stays usable.
+constexpr int8_t kGainStepDb = 3;
 
 // ---------------------------------------------------------------------------
 // Web UI.

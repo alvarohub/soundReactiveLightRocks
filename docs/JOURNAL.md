@@ -730,6 +730,63 @@ intensity.
 task with a ring buffer; that is now the top item in IDEAS.md rather than something
 motion blur is papering over.
 
+## 2026-11-08 (night) — Audio and rendering finally decoupled; AGC
+
+### The right question
+
+"Why does audio capture have anything to do with display rendering?" It should not,
+and it was my mistake. I checked the library before answering:
+
+* `M5.Mic` already configures I2S/PDM with **DMA** (`dma_buf_count`, `dma_buf_len`)
+  and runs its **own capture task** — exactly the continuous DMA the user assumed;
+* but `record()` is a *blocking* API: it queues a request and waits on a semaphore
+  until the library task has filled the buffer.
+
+So the hardware was fine; the firmware chose to wait. That came from the sister
+project's "one audio block = one frame" simplification, which was tidy but coupled
+two independent rates.
+
+### The split
+
+New [src/audio_task.h](../src/audio_task.h) / [audio_task.cpp](../src/audio_task.cpp):
+
+* a FreeRTOS task on **core 0** (Wi-Fi core), priority 3, 6 KB stack, owns
+  `SpectrumAnalyzer` exclusively;
+* it applies `gainDb` itself (so nobody else may call `setGainDb`), captures, runs the
+  FFT, and publishes an `AudioSnapshot`: broadband level/dBFS/peak, the 30 display
+  bands, and per layer its band level and spectral flux;
+* the render loop copies the snapshot under a spinlock and renders at up to **~100
+  fps**, advancing animation from its own clock;
+* onset detection runs only when `snapshot.seq` changes, so each flux sample is
+  consumed once — otherwise the same sample would be tested 3× per block;
+* if the task cannot start, the loop falls back to the old inline path.
+
+This is what makes `speed` above ~30 LED/s mean anything: at 31 fps a 500 LED/s blob
+had to jump 16 LEDs per frame.
+
+### Automatic gain control
+
+Requested for noisy rooms. Every 400 ms, from the peak broadband level of the window:
+
+| peak | action |
+|------|--------|
+| < 0.08 | nothing (silence must not be amplified) |
+| < 0.30 | +3 dB |
+| 0.30–0.90 | nothing |
+| > 0.90 | −3 dB |
+
+Gain steps were narrowed from 6 dB to **3 dB** so the controller settles without
+audible pumping. Verified by simulation: silence and very quiet stay put, a quiet
+room walks up to +9 dB (level 0.38), loud walks down to −3 dB, very loud to −18 dB
+(level 0.86), and a source sitting on a boundary does not oscillate.
+
+Moving the gain slider turns AGC off — that is the manual override.
+
+UI: an `AGC` toggle sits on the gain slider's row, matching the retrigger control.
+The slider is disabled while AGC is on.
+
+Blob **v9** (header grew by the `agc` byte), v8 migrates.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

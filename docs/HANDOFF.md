@@ -136,6 +136,18 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### Audio capture runs in its own task (2026-11-08)
+`M5.Mic` is I2S/PDM with DMA and a library-side capture task, but `record()` blocks
+until a block is ready. Calling it from `loop()` therefore pinned the whole firmware
+to ~31 fps. `AudioTask` now owns that path and publishes an `AudioSnapshot`; the
+render loop runs at up to ~100 fps and never touches the FFT.
+
+Rules:
+* only the audio task may touch `SpectrumAnalyzer`;
+* onset detection must run on a **new snapshot only** (guarded by `seq`), or the same
+  flux sample would be evaluated several times per block;
+* animation timing uses the **render** clock, not the audio clock.
+
 ### Ghost spacing must scale with the blob (2026-11-08)
 The first motion-blur implementation used a fixed 0.6-LED ghost step, which put each
 ghost on a different LED for a 1-LED blob and produced a dotted line. The step is now

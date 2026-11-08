@@ -118,8 +118,11 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=card>
 <div class=ptitle style="border-left-color:#3fb950">Microphone (global)<small>shared input for every layer</small></div>
 <div class="row first"><span>Microphone gain</span><b id=gainDbv>-</b></div>
-<input type=range id=gainDb min=-24 max=18 step=6>
-<div class=hint>negative attenuates: use it when the room is too loud</div>
+<div class=rline>
+<input type=range id=gainDb min=-24 max=18 step=3>
+<button type=button id=agcbtn class=tbtn>AGC</button>
+</div>
+<div class=hint id=agchint>negative attenuates: use it when the room is too loud</div>
 <div class=stats>
 <div><span>Broadband</span><b id=sLvl>0%</b></div>
 <div><span>dBFS</span><b id=sDb>-</b></div>
@@ -169,7 +172,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 var S=0,L=0,ST=null,BUILT=false,SEEDED=false,TRIG=1,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0,SOLO=-1;
 var TB={thr:1,beat:2,tap:4,accel:8,gyro:16,lfo:32};
 var CUR_COL='#ff6a00',WHEEL_BG=null,WX=76,WY=76,WDRAG=false,TDRAG=-1,MSGTMR=0;
-var INFLIGHT=false,POLL_BUSY=false,LAST=null,PTMR=0,AFTER=null,HOLD_TMRS={};
+var INFLIGHT=false,POLL_BUSY=false,LAST=null,PTMR=0,AFTER=null,HOLD_TMRS={},AGC=0;
 
 function $(i){return document.getElementById(i);}
 function hex2(n){var s=Math.round(n).toString(16);return s.length<2?'0'+s:s;}
@@ -729,6 +732,8 @@ function fillInputs(){
  $('ledCount').value=p.ledCount;
  $('pwr').checked=!!c.enabled;
  $('gainDb').value=ST.gainDb;
+ AGC=ST.agc?1:0;
+ setAgc();
  TRIG=c.triggers||0;EFF=c.effect||0;REV=c.reverse||0;LOOP=c.loop?1:0;
  RETRIG=c.retrigger!==undefined?(c.retrigger?1:0):1;
  CALIB=p.calib?1:0;
@@ -824,6 +829,23 @@ function post(u,refresh){
  });
 }
 $('host').textContent=location.host;
+function setAgc(){
+ var b=$('agcbtn'),sl=$('gainDb'),h=$('agchint');
+ if(!b)return;
+ b.className='tbtn'+(AGC?' on':'');
+ b.textContent=AGC?'AGC ON':'AGC';
+ sl.disabled=!!AGC;
+ sl.style.opacity=AGC?'0.35':'1';
+ if(h)h.textContent=AGC
+  ?'automatic: the firmware nudges the gain to keep the level in range (move the slider to take over)'
+  :'negative attenuates: use it when the room is too loud';
+}
+$('agcbtn').onclick=function(){
+ AGC=AGC?0:1;
+ setAgc();
+ sendRaw('agc='+AGC);
+ flush();
+};
 $('gainDb').addEventListener('input',function(){
  var v=+$('gainDb').value;
  $('gainDbv').textContent=(v>0?'+':'')+v+' dB';
@@ -937,8 +959,10 @@ String WebUi::stateJson() const {
   const uint32_t nowMs = millis();
 
   appendf(buf, sizeof(buf), n,
-          "{\"ssid\":\"%s\",\"ver\":\"%s\",\"gainDb\":%d,\"strips\":[", kSsid,
-          kFirmwareVersion, (int)settings_->gainDb);
+          "{\"ssid\":\"%s\",\"ver\":\"%s\",\"gainDb\":%d,\"agc\":%u,"
+          "\"strips\":[",
+          kSsid, kFirmwareVersion, (int)settings_->gainDb,
+          (unsigned)settings_->agc);
 
   for (size_t i = 0; i < kStripCount; i++) {
     const PhysicalStripSettings &p = settings_->phys[i];
@@ -1106,6 +1130,11 @@ void WebUi::handleParams() {
     }
   }
 
+  // Touching the slider means "I want manual control", so it turns AGC off.
+  if (server_.hasArg("gainDb") && !server_.hasArg("agc")) {
+    settings_->agc = 0;
+  }
+  applyArg("agc", &settings_->agc);
   applyArg("gainDb", &settings_->gainDb);
   clampSettings(*settings_);
   changed_ = true;

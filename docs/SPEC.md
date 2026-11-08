@@ -61,6 +61,40 @@ Moving a strip to another pin is a one-line edit in
 
 ## 3. Signal chain
 
+### 3.0 Two independent rates
+
+The microphone and the strip do **not** run at the same rate, and the firmware no
+longer pretends they do:
+
+* an **audio task** owns the blocking capture path (`M5.Mic` is I2S/PDM with DMA,
+  but `record()` waits for a full block), runs the FFT and publishes an
+  `AudioSnapshot` — the broadband level, the 30 display bands and, per layer, its
+  band level and spectral flux;
+* the **render loop** runs at up to ~100 fps, reads the newest snapshot and never
+  touches the FFT. It advances every animation from its own clock.
+
+Onset detection runs **once per audio block** (guarded by the snapshot sequence
+number) so each flux sample is consumed exactly once, while motion, fades and the
+trigger envelope all use the render clock.
+
+If the audio task cannot start, the loop falls back to calling the analyser inline.
+
+### 3.0b Automatic gain control
+
+`agc = 1` keeps the input usable when the room changes. Every 400 ms it looks at the
+peak broadband level of the window and moves `gainDb` by one 3 dB step:
+
+| peak level | action |
+|------------|--------|
+| < 0.08 | nothing — silence must not be amplified |
+| < 0.30 | gain up one step |
+| 0.30…0.90 | nothing (the hysteresis band) |
+| > 0.90 | gain down one step |
+
+The band is wide on purpose: a narrow one would oscillate. Moving the gain slider on
+the phone turns AGC off, because that is a manual override.
+
+
 ```
 built-in mic ──► 512-sample frame @ 16 kHz ──► Hann window ──► real FFT
                                                                     │
@@ -351,7 +385,8 @@ Layer 2 of strip 1 ships pre-configured (sparkle, 4 kHz window, 70 % weight) so
 
 | Parameter | Range | Default | Notes |
 |-----------|-------|---------|-------|
-| `gainDb` | −24…+18 in 6 dB steps | 0 | Microphone gain applied to the analysis. **Negative values attenuate**, which is what a noisy room needs |
+| `gainDb` | −24…+18 in 3 dB steps | 0 | Microphone gain applied to the analysis. **Negative values attenuate**, which is what a noisy room needs |
+| `agc` | 0/1 | 0 | **Automatic gain control**: the firmware nudges `gainDb` to keep the level in range. Moving the slider turns it off |
 
 `ledCount` is a property of the physical strip, so it is sent without a `layer`.
 Changing it re-initialises the strip driver: safe but not free, so the UI only sends

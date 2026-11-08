@@ -71,11 +71,14 @@ travel per frame, which is exactly why fast blobs used to alias.
 
 **So: the LED transfer only becomes the limit above ~300 LEDs.**
 
-**Idea (the real fix):** decouple audio from rendering. Run `M5.Mic.record()` in its
-own FreeRTOS task writing into a small ring buffer; the main loop then renders at
-60–100 Hz using the most recent analysis. Costs one task, ~4 KB of buffer and a bit
-of care around the FFT buffers. This would remove the need for motion-blur ghosts
-almost entirely, and would make whip/pad response feel instant.
+**Done 2026-11-08:** `AudioTask` owns the blocking capture path on core 0 and
+publishes an `AudioSnapshot`; the render loop runs at up to ~100 fps. Confirmed that
+M5Unified's `record()` was always DMA-backed and task-driven — the blocking *API* was
+what pinned the loop, not the hardware.
+
+**Still open:** measure the achieved render rate on hardware (100 LEDs should allow
+~100 fps against a 3 ms RMT transfer) and decide whether the motion-blur ghosts can be
+dropped above some rate.
 
 **Idea (cheap stopgap):** cap `speed` at `frameRate × 1 LED` (≈31 LED/s at 31 fps)
 and instead express speed in "screens per second", so the UI cannot ask for motion

@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "audio_fft.h"
+#include "audio_task.h"
 #include "beat.h"
 #include "config.h"
 #include "display.h"
@@ -16,6 +17,10 @@
 namespace {
 
 SpectrumAnalyzer analyzer;
+AudioTask audio;
+AudioSnapshot snap;       // latest analysis copied from the audio task
+uint32_t snapSeq = 0;     // last snapshot consumed (onset runs once per block)
+uint32_t lastAudioUs = 0; // for the beat detector's dt
 MotionSensor motion;
 LedStrip strips[kStripCount];
 
@@ -23,6 +28,9 @@ LedStrip strips[kStripCount];
 // strip must be able to follow different rhythms.
 LayerEngine engines[kStripCount][kMaxLayersPerStrip];
 BeatDetector beats[kStripCount][kMaxLayersPerStrip];
+// Result of the last onset test, reused by every rendered frame until a new
+// audio block arrives.
+BeatInfo beatInfo[kStripCount][kMaxLayersPerStrip];
 
 Settings settings;
 SettingsStore store;
@@ -39,6 +47,23 @@ int16_t syncedGainDb = 0x7FFF; // sentinel: force a first sync
 // Writing NVS on every slider move would wear the flash and stall the CPU cache
 // mid-drag, so changes are saved once they have been quiet for 2 seconds.
 constexpr uint32_t kSaveDelayMs = 2000;
+
+// --- Automatic gain control -------------------------------------------------
+// Without this the microphone is either deaf or saturated depending on the room,
+// and the gain is the one thing that always needs re-tuning on site. The
+// controller only ever nudges gainDb by one step and only when there is actually
+// something to judge, so a silent room cannot wind it up into a noise amplifier.
+constexpr uint32_t kAgcIntervalMs = 400;
+constexpr float kAgcRaiseBelow = 0.30f; // peak-hold below this -> too quiet
+constexpr float kAgcLowerAbove = 0.90f; // peak-hold above this -> too hot
+constexpr float kAgcActAbove = 0.08f;   // below this there is nothing to judge
+float agcPeak = 0.0f;
+uint32_t agcLastMs = 0;
+
+// Render target. The microphone runs at ~31 Hz in its own task; the animation
+// and the strip run at this rate instead. It is only a *cap*: the LED transfer
+// (~3 ms per 100 LEDs) sets the real floor.
+constexpr uint32_t kRenderPeriodUs = 10000; // ~100 fps
 bool settingsDirty = false;
 uint32_t settingsChangedAt = 0;
 
@@ -73,7 +98,6 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
   LedStrip &strip = strips[i];
   const size_t count = ps.layerCount < 1 ? 1 : ps.layerCount;
   const int8_t solo = web.soloLayer(i);
-  const uint32_t dtMs = (uint32_t)(dtSec * 1000.0f + 0.5f);
 
   strip.clear();
 
@@ -89,18 +113,10 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
       continue;
     }
 
-    const float level =
-        analyzer.bandLevel((float)s.centerHz, (float)s.widthHz);
-    // Silence gate input: the band level with the microphone gain removed, so a
-    // negative gain attenuates what you hear without also disabling the beat
-    // detector. (The raw level would fall below the gate and beats would never
-    // fire, which is exactly how this surfaced.)
-    const float gateLevel =
-        analyzer.clampLevel(level - (float)settings.gainDb /
-                                        SpectrumAnalyzer::kLevelRangeDb);
-    const BeatInfo beat = beats[i][l].update(
-        analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), gateLevel, dtMs,
-        s.beatSensitivityPct);
+    // Values come from the snapshot the audio task published: this loop never
+    // touches the FFT, so it is free to run at the strip's own rate.
+    const float level = snap.layerLevel[i][l];
+    const BeatInfo beat = beatInfo[i][l];
 
     // Pads only reach a layer that has the tap trigger armed, so the
     // checkboxes really do decide what can fire a layer.
@@ -168,6 +184,63 @@ uint8_t nextTriggerSet(uint8_t t) {
     }
   }
   return kCycle[0];
+}
+
+// Fallback for the (unlikely) case where the audio task could not start: do the
+// blocking capture inline, exactly like the old single-rate loop.
+void fillSnapshotInline(AudioSnapshot &out) {
+  out.valid = true;
+  out.level = analyzer.level();
+  out.levelDb = analyzer.levelDb();
+  out.peakHz = analyzer.peakHz();
+  const float *bands = analyzer.bands();
+  for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
+    out.bands[b] = bands[b];
+  }
+  for (size_t i = 0; i < kStripCount; i++) {
+    for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+      const LayerSettings &ls = settings.layer[i][l];
+      out.layerLevel[i][l] = analyzer.bandLevel((float)ls.centerHz, (float)ls.widthHz);
+      out.layerFlux[i][l] = analyzer.bandFlux((float)ls.centerHz, (float)ls.widthHz);
+    }
+  }
+}
+
+void runAgc(uint32_t nowMs) {
+  if (!settings.agc) {
+    agcPeak = 0.0f;
+    agcLastMs = nowMs;
+    return;
+  }
+  if (snap.level > agcPeak) {
+    agcPeak = snap.level;
+  }
+  if ((uint32_t)(nowMs - agcLastMs) < kAgcIntervalMs) {
+    return;
+  }
+  agcLastMs = nowMs;
+  const float peak = agcPeak;
+  agcPeak = 0.0f;
+
+  if (peak < kAgcActAbove) {
+    return; // silence: leave the gain alone rather than amplifying the room
+  }
+
+  int8_t g = settings.gainDb;
+  if (peak < kAgcRaiseBelow && g < kMaxGainDb) {
+    g = (int8_t)(g + kGainStepDb);
+  } else if (peak > kAgcLowerAbove && g > kMinGainDb) {
+    g = (int8_t)(g - kGainStepDb);
+  } else {
+    return;
+  }
+  if (g == settings.gainDb) {
+    return;
+  }
+  settings.gainDb = g;
+  clampSettings(settings);
+  noteSettingsChanged();
+  display.invalidateHud();
 }
 
 void handleButtons() {
@@ -243,6 +316,9 @@ void setup() {
     Serial.println("mic init failed");
   }
   analyzer.setGainDb(settings.gainDb);
+  // Capture runs in its own task from here on: the render loop must never wait
+  // for a microphone block again.
+  audio.begin(&analyzer, &settings);
 
   web.setup(&settings, &store);
   if (!web.begin()) {
@@ -258,6 +334,7 @@ void setup() {
 }
 
 void loop() {
+  const uint32_t nowUs = micros();
   M5.update();
   web.update();
 
@@ -270,11 +347,10 @@ void loop() {
 
   handleButtons();
 
-  // The gain can be changed from the buttons or from the phone, so keep the
-  // analyzer in sync in one place.
+  // The audio task applies the gain itself (it is the only task allowed to
+  // touch the analyser); the render side only needs to refresh the HUD.
   if (syncedGainDb != settings.gainDb) {
     syncedGainDb = settings.gainDb;
-    analyzer.setGainDb(syncedGainDb);
     display.invalidateHud();
   }
 
@@ -286,16 +362,47 @@ void loop() {
 
   motion.update();
 
-  if (!analyzer.update()) {
-    // Even without a mic, pace at ~31 fps so pads and test triggers animate.
-    delay(32);
+  // Pull the newest analysis. Only a *new* audio block advances the onset
+  // detectors, so each flux sample is consumed exactly once.
+  bool fresh = audio.read(snap, snapSeq);
+  if (!audio.running()) {
+    if (analyzer.update()) {
+      fillSnapshotInline(snap);
+      snap.seq++;
+      snapSeq = snap.seq;
+      fresh = true;
+    } else {
+      delay(5);
+    }
   }
-  web.update();
 
-  // The microphone paces the loop, so measure the real frame time instead of
-  // assuming a fixed one: motion speed and fade stay accurate.
-  const uint32_t nowUs = micros();
-  uint32_t dtMs = lastFrameUs == 0 ? 32 : (nowUs - lastFrameUs) / 1000;
+  if (fresh && snap.valid) {
+    uint32_t audioDtMs = lastAudioUs ? (nowUs - lastAudioUs) / 1000 : 32;
+    lastAudioUs = nowUs;
+    if (audioDtMs == 0) {
+      audioDtMs = 1;
+    } else if (audioDtMs > 250) {
+      audioDtMs = 250;
+    }
+    for (size_t i = 0; i < kStripCount; i++) {
+      for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+        const LayerSettings &ls = settings.layer[i][l];
+        // Silence gate input with the gain removed, so attenuating the
+        // microphone does not also deafen the beat detector.
+        const float gate = SpectrumAnalyzer::clampLevel(
+            snap.layerLevel[i][l] -
+            (float)settings.gainDb / SpectrumAnalyzer::kLevelRangeDb);
+        beatInfo[i][l] =
+            beats[i][l].update(snap.layerFlux[i][l], gate, audioDtMs,
+                               ls.beatSensitivityPct);
+      }
+    }
+  }
+
+  runAgc(millis());
+
+  // Animation runs on the render clock, not the audio clock.
+  uint32_t dtMs = lastFrameUs == 0 ? 10 : (nowUs - lastFrameUs) / 1000;
   lastFrameUs = nowUs;
   if (dtMs == 0) {
     dtMs = 1;
@@ -306,22 +413,22 @@ void loop() {
   const uint32_t nowMs = millis();
 
   Telemetry tele;
-  tele.levelPct = (uint8_t)(analyzer.level() * 100.0f + 0.5f);
-  tele.dbfs = (int16_t)lroundf(analyzer.levelDb());
-  tele.peakHz = (uint16_t)lroundf(analyzer.peakHz());
+  tele.levelPct = (uint8_t)(snap.level * 100.0f + 0.5f);
+  tele.dbfs = (int16_t)lroundf(snap.levelDb);
+  tele.peakHz = (uint16_t)lroundf(snap.peakHz);
 
   for (size_t i = 0; i < kStripCount; i++) {
     renderStrip(i, nowMs, dtSec, tele);
   }
   web.setTelemetry(tele);
 
-  display.renderFrame(analyzer.bands(), settings, tele, nowMs);
+  display.renderFrame(snap.bands, settings, tele, nowMs);
 
   if (millis() - lastStats >= 2000) {
     lastStats = millis();
     char out[80];
     size_t n = (size_t)snprintf(out, sizeof(out), "lvl %3.0f%% %+4.0f dBFS",
-                                analyzer.level() * 100.0f, analyzer.levelDb());
+                                snap.level * 100.0f, snap.levelDb);
     for (size_t i = 0; i < kStripCount && n + 14 < sizeof(out); i++) {
       n += (size_t)snprintf(out + n, sizeof(out) - n, " | p%u %uL %3.0f%%",
                             (unsigned)i + 1,
@@ -329,5 +436,12 @@ void loop() {
                             strips[i].peak() * 100.0f);
     }
     Serial.println(out);
+  }
+
+  // Top the frame up to the period rather than busy-waiting, so Wi-Fi and the
+  // audio task get CPU.
+  const uint32_t elapsedUs = micros() - nowUs;
+  if (elapsedUs + 1500 < kRenderPeriodUs) {
+    delay((kRenderPeriodUs - elapsedUs) / 1000);
   }
 }

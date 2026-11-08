@@ -117,7 +117,8 @@ struct Settings {
 
   PhysicalStripSettings phys[kStripCount];
   LayerSettings layer[kStripCount][kMaxLayersPerStrip];
-  int8_t gainDb = 0; // shared: there is one microphone; negative = attenuate
+  int8_t gainDb = 0;  // shared: there is one microphone; negative = attenuate
+  uint8_t agc = 0;    // 1 = the firmware keeps gainDb in range by itself
 };
 
 inline uint16_t clampU16(int32_t v, uint16_t lo, uint16_t hi) {
@@ -197,6 +198,7 @@ inline void clampSettings(Settings &s) {
     g = (int)kMaxGainDb;
   }
   s.gainDb = (int8_t)g;
+  s.agc = s.agc ? 1 : 0;
 }
 
 // First-run values: each strip starts with one layer. Strip 1 takes the bass in
@@ -280,11 +282,11 @@ struct Telemetry {
 
 constexpr size_t kLayerBlockSize = 32;
 constexpr size_t kPhysBlockSize = 6;
-constexpr size_t kSettingsHeaderSize = 2; // version, gainDb
+constexpr size_t kSettingsHeaderSize = 3; // version, gainDb, agc
 constexpr size_t kSettingsBlobSize =
     kSettingsHeaderSize + kPhysBlockSize * kStripCount +
     kLayerBlockSize * kStripCount * kMaxLayersPerStrip;
-constexpr uint8_t kSettingsBlobVersion = 8;
+constexpr uint8_t kSettingsBlobVersion = 9;
 
 void encodeSettings(const Settings &s, uint8_t *out);
 bool decodeSettings(const uint8_t *in, size_t len, Settings &out);

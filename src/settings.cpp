@@ -11,6 +11,7 @@ constexpr char kPresetKeys[SettingsStore::kPresetCount][8] = {
 
 // Older layouts, kept so presets written by earlier firmware still load: their
 // single "strip" becomes layer 0 of that physical strip.
+constexpr uint8_t kBlobVersionV8 = 8;
 constexpr uint8_t kBlobVersionV7 = 7;
 constexpr uint8_t kBlobVersionV6 = 6;
 constexpr uint8_t kBlobVersionV5 = 5;
@@ -163,6 +164,7 @@ inline void decodeStripV3(const uint8_t *p, PhysicalStripSettings &phys,
 void encodeSettings(const Settings &s, uint8_t *out) {
   out[0] = kSettingsBlobVersion;
   out[1] = (uint8_t)s.gainDb; // two's complement, sign restored on decode
+  out[2] = s.agc;
   size_t n = kSettingsHeaderSize;
 
   for (size_t i = 0; i < kStripCount; i++) {
@@ -184,6 +186,7 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
 
   Settings s;
   s.gainDb = (int8_t)in[1];
+  s.agc = (len > 2) ? in[2] : 0; // v8 blobs have a 2-byte header
 
   if (in[0] == kSettingsBlobVersion && len == kSettingsBlobSize) {
     size_t n = kSettingsHeaderSize;
@@ -197,6 +200,22 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
         n += kLayerBlockSize;
       }
     }
+  } else if (in[0] == kBlobVersionV8 &&
+             len == 2 + kPhysBlockSize * kStripCount +
+                        kLayerBlockSize * kStripCount * kMaxLayersPerStrip) {
+    // Same layout as v9, only the header was one byte shorter.
+    size_t n = 2;
+    for (size_t i = 0; i < kStripCount; i++) {
+      decodePhys(in + n, s.phys[i]);
+      n += kPhysBlockSize;
+    }
+    for (size_t i = 0; i < kStripCount; i++) {
+      for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+        decodeLayer(in + n, s.layer[i][l]);
+        n += kLayerBlockSize;
+      }
+    }
+    s.agc = 0;
   } else if (in[0] == kBlobVersionV7 &&
              len == kSettingsHeaderSize + 4 * kStripCount +
                         (size_t)26 * kStripCount * kMaxLayersPerStrip) {
