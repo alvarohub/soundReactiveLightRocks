@@ -174,7 +174,7 @@ previous frame:
   is bit-identical to before.
 
 For very short blobs even that is not enough to look continuous, which is what the
-per-strip **bleed** is for (§7).
+per-layer **softness** is for.
 
 ### 4.2c Fade shape
 
@@ -351,7 +351,7 @@ driver out of range.
 | `ledCount` | 1…1000 | 100 | Actual number of LEDs on this strip (shows the calibration dot at `ledCount-1` while tuning) |
 | `brightnessPct` | 1…100 | 100 | Master output ceiling for the whole strip, applied after all layers are merged |
 | `layerCount` | 1…4 | 1 | How many light layers are live inside this strip |
-| `bleedPct` | 0…100 | 0 | Spatial bleed: a `[1,2,1]/4` convolution over the **merged** frame before gamma, repeated up to 3× at 100 %. Makes very short blobs read as soft bumps |
+| — | — | — | *(no strip-level blur: see `softnessPct` per layer below)* |
 
 ### Per light layer (the glowing object)
 
@@ -361,6 +361,7 @@ driver out of range.
 | `effect` | 0…4 | 0 | `0` = jet, `1` = flash, `2` = burst, `3` = sparkle, `4` = whip |
 | `enabled` | 0/1 | 1 | Layer power. Off = this layer contributes nothing, settings kept |
 | `intensityPct` | 1…100 | 100 | This layer's weight in the merged output |
+| `softnessPct` | 0…100 | 0 | Widens this layer's spatial profile (`halfWidth × (1 + softness)`), so its edges bleed outward. A **layer** property: it shapes the blob before anything is merged |
 | `centerHz` | 65…7600 | 150 / 1000 | Band centre (strip 1 layer 1 bass, strip 2 layer 1 mids by default) |
 | `widthHz` | 40…16000 | 250 / 1400 | Band width; also the beat detector's listening window |
 | `thresholdPct` | 0…100 | 35 / 40 | Level that fires the effect in **Threshold** mode (drag the white marker) |
@@ -456,12 +457,13 @@ Unknown arguments are ignored; out-of-range values are clamped.
   them to `live`).
 * **Factory reset** restores the hardcoded defaults from `defaultSettings()` in
   code (never overwritten by user saves) without deleting the 3 preset banks.
-* The settings blob is versioned (`v7`: 4-byte physical block + 26-byte layer block
-  × 4 layers per strip, 210 bytes total) and fixed-layout. Byte 25 of the layer
-  block, previously spare, now holds the glow period in 20 ms units.
-  A `v6`, `v5`, `v4` or `v3` blob is migrated automatically on load; an old single
-  `mode` enum becomes the matching trigger bit, and a v6 blob's zero glow byte
-  becomes the 2 s default. Any other version falls back to defaults.
+* The settings blob is versioned and fixed-layout. Current layout is **v10**:
+  3-byte header (version, gainDb, agc) + 6-byte physical block + 32-byte layer block
+  × 4 layers per strip = 277 bytes.
+  Blobs from **v3 through v9** are migrated automatically on load: an old single
+  `mode` enum becomes the matching trigger bit, a v7 `Glow` effect becomes
+  `Flash + LFO`, and a v9 per-strip bleed becomes the per-layer softness. Any other
+  version falls back to defaults.
 
 ---
 

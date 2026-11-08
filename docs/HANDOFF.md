@@ -136,6 +136,25 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### Legacy blob checks must use the OLD header size (2026-11-08)
+Every migration path compared `len` against `kSettingsHeaderSize`, which grew from 2
+to 3 when `agc` was added. That made every legacy path one byte too long, so old
+blobs silently failed to decode and the firmware fell back to defaults — the user's
+four saved layers became one, uneditable. The legacy branches now use `kHeaderV8`
+(2) plus the historical block sizes (`kPhysBlockV8`, `kLayerBlockV7`,
+`kLayerBlockV5`).
+
+**Rule:** never use a `k…` size constant from the *current* layout inside a decoder
+for an *older* version. Keep explicit legacy constants, and exercise each path with a
+synthetic blob (there is a host test for v6/v7/v8/v9 in the journal entry).
+
+### Softness is a layer property, not a strip one (2026-11-08)
+The strip-level `bleed()` (a `[1,2,1]` convolution over the merged frame) is gone. It
+could not know whose edge it was softening, and on an already-smooth blob it was
+barely visible. `LayerSettings::softnessPct` widens that layer's profile
+(`halfWidth × (1 + softness)`), which is visible and is what "blur the borders of the
+blob" actually means.
+
 ### Audio capture runs in its own task (2026-11-08)
 `M5.Mic` is I2S/PDM with DMA and a library-side capture task, but `record()` blocks
 until a block is ready. Calling it from `loop()` therefore pinned the whole firmware

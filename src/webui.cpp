@@ -135,8 +135,6 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=seg id=pick></div>
 <div class=row style="margin-top:10px"><span>Strip brightness</span><b id=brightnessPctv>-</b></div>
 <input type=range id=brightnessPct min=1 max=100 step=1>
-<div class=row><span>Bleed / blur</span><b id=bleedPctv>-</b></div>
-<input type=range id=bleedPct min=0 max=100 step=1>
 <div class="row" style="margin-top:12px"><span>Light layers inside</span><b id=lcv>-</b></div>
 <div class=seg id=layertabs></div>
 <div class=rline style="margin-top:8px">
@@ -472,7 +470,7 @@ function build(){
 
  /* ---- display: colour + intensity (layer), brightness (physical) ---- */
  var dbox=$('dispbox');
- dbox.innerHTML='<div class=ptitle id=dtitle>Display<small>layer colour &amp; weight, strip brightness</small></div>'
+ dbox.innerHTML='<div class=ptitle id=dtitle>Display<small>colour, weight &amp; softness of this layer</small></div>'
   +'<div class=row><span>Layer colour</span><b id=colv>-</b></div>'
   +'<div class=cwrap><canvas id=wheel width=152 height=152></canvas><div class=cbox id=cbox></div></div>'
   +'<div id=spanel></div>';
@@ -489,9 +487,12 @@ function build(){
  });
  wh.addEventListener('pointerup',function(e){if(!WDRAG)return;WDRAG=false;pickWheel(e,true);});
  wh.addEventListener('pointercancel',function(){WDRAG=false;flush();});
- bindLayerRange($('spanel'),[{k:'intensityPct',n:'Layer intensity',min:1,max:100,st:1,u:'%'}]);
+ bindLayerRange($('spanel'),[
+  {k:'intensityPct',n:'Layer intensity',min:1,max:100,st:1,u:'%'},
+  {k:'softnessPct',n:'Softness (blur of the edges)',min:0,max:100,st:1,u:'%'}
+ ]);
  // Strip-level controls live in the strip card, directly under the strip tabs.
- ['brightnessPct','bleedPct'].forEach(function(k){
+ ['brightnessPct'].forEach(function(k){
   $(k).addEventListener('input',function(){labels();sendPhys(k,$(k).value);});
   $(k).addEventListener('change',flush);
  });
@@ -643,7 +644,7 @@ function labels(){
  if($('attackMsv'))$('attackMsv').textContent=$('attackMs').value+' ms';
  if($('releaseMsv'))$('releaseMsv').textContent=$('releaseMs').value+' ms';
  if($('brightnessPctv'))$('brightnessPctv').textContent=$('brightnessPct').value+'%';
- if($('bleedPctv'))$('bleedPctv').textContent=$('bleedPct').value+'%';
+ if($('softnessPctv'))$('softnessPctv').textContent=$('softnessPct').value+'%';
  if($('brightnessPctv'))$('brightnessPctv').textContent=$('brightnessPct').value+'%';
  if($('ledCountv'))$('ledCountv').textContent=$('ledCount').value;
  refreshTitle();
@@ -727,8 +728,9 @@ function fillInputs(){
  $('attackMs').value=c.attackMs;
  $('releaseMs').value=c.releaseMs;
  $('intensityPct').value=c.intensityPct;
+ $('softnessPct').value=c.softnessPct;
  $('brightnessPct').value=p.brightnessPct;
- $('bleedPct').value=p.bleedPct;
+
  $('ledCount').value=p.ledCount;
  $('pwr').checked=!!c.enabled;
  $('gainDb').value=ST.gainDb;
@@ -969,11 +971,9 @@ String WebUi::stateJson() const {
     const PhysicalTelemetry &pt = tele_.strip[i];
     appendf(buf, sizeof(buf), n,
             "%s{\"ledCount\":%u,\"brightnessPct\":%u,\"layerCount\":%u,"
-            "\"bleedPct\":%u,\"brightPct\":%u,\"solo\":%d,\"calib\":%u,"
-            "\"layers\":[",
+            "\"brightPct\":%u,\"solo\":%d,\"calib\":%u,\"layers\":[",
             i == 0 ? "" : ",", (unsigned)p.ledCount, (unsigned)p.brightnessPct,
-            (unsigned)p.layerCount, (unsigned)p.bleedPct,
-            (unsigned)pt.brightPct, (int)soloLayer(i),
+            (unsigned)p.layerCount, (unsigned)pt.brightPct, (int)soloLayer(i),
             isCalibrating(i, nowMs) ? 1u : 0u);
 
     for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
@@ -981,7 +981,8 @@ String WebUi::stateJson() const {
       const LayerTelemetry &lt = pt.layer[l];
       appendf(buf, sizeof(buf), n,
               "%s{\"triggers\":%u,\"effect\":%u,\"enabled\":%u,"
-              "\"intensityPct\":%u,\"centerHz\":%u,\"widthHz\":%u,"
+              "\"intensityPct\":%u,\"softnessPct\":%u,\"centerHz\":%u,"
+              "\"widthHz\":%u,"
               "\"thresholdPct\":%u,\"beatSensitivityPct\":%u,"
               "\"motionThresholdPct\":%u,\"lfoPeriodMs\":%u,\"attackMs\":%u,"
               "\"releaseMs\":%u,\"retrigger\":%u,\"retriggerMs\":%u,"
@@ -1074,7 +1075,6 @@ void WebUi::handleParams() {
     applyArg("ledCount", &ps.ledCount);
     applyArg("brightnessPct", &ps.brightnessPct);
     applyArg("layerCount", &ps.layerCount);
-    applyArg("bleedPct", &ps.bleedPct);
 
     // Changing ledCount auto-shows the calibration dot for 3.5 s so the tip of
     // the strip is visible; touching anything else leaves calibration mode.
@@ -1105,6 +1105,7 @@ void WebUi::handleParams() {
       applyArg("releaseMs", &s.releaseMs);
       applyArg("enabled", &s.enabled);
       applyArg("intensityPct", &s.intensityPct);
+      applyArg("softnessPct", &s.softnessPct);
       applyArg("centerHz", &s.centerHz);
       applyArg("widthHz", &s.widthHz);
       applyArg("thresholdPct", &s.thresholdPct);

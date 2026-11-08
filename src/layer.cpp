@@ -409,7 +409,13 @@ void LayerEngine::render(LedStrip &strip, const LayerSettings &s) {
 
   // blobLeds is the full width of the light group, so half each side of the
   // centre. Ping-pong and centre bursts do not wrap across LED 0.
-  const float halfWidth = (float)s.blobLeds * 0.5f;
+  //
+  // Softness widens the profile: at 100 % the blob is twice as wide and its
+  // edges carry the light outward. It belongs to the layer because it shapes
+  // this blob *before* anything is merged - a blur on the merged frame could not
+  // tell whose edge it was softening.
+  const float soft = (float)s.softnessPct / 100.0f;
+  const float halfWidth = (float)s.blobLeds * 0.5f * (1.0f + soft);
   const bool wrapSeam =
       (s.loop != 0) && (s.reverse != LayerSettings::kPingPong);
   for (size_t i = 0; i < kMaxBlobs; i++) {

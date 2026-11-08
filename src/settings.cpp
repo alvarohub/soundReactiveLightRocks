@@ -11,6 +11,7 @@ constexpr char kPresetKeys[SettingsStore::kPresetCount][8] = {
 
 // Older layouts, kept so presets written by earlier firmware still load: their
 // single "strip" becomes layer 0 of that physical strip.
+constexpr uint8_t kBlobVersionV9 = 9;
 constexpr uint8_t kBlobVersionV8 = 8;
 constexpr uint8_t kBlobVersionV7 = 7;
 constexpr uint8_t kBlobVersionV6 = 6;
@@ -19,6 +20,15 @@ constexpr uint8_t kBlobVersionV4 = 4;
 constexpr uint8_t kBlobVersionV3 = 3;
 constexpr size_t kStripBlockV4 = 26;
 constexpr size_t kStripBlockV3 = 24;
+
+// Every layout before v9 had a 2-byte header (version, gainDb). Using the
+// *current* kSettingsHeaderSize in these checks made each legacy path one byte
+// too long, so old blobs silently failed to decode and the firmware fell back to
+// defaults - which is how saved layers disappeared after a flash.
+constexpr size_t kHeaderV8 = 2;
+constexpr size_t kPhysBlockV8 = 4;   // physical block before v9
+constexpr size_t kLayerBlockV7 = 26; // layer block v6/v7
+constexpr size_t kLayerBlockV5 = 24; // layer block v5
 
 inline void put16(uint8_t *p, uint16_t v) {
   p[0] = (uint8_t)(v & 0xFF);
@@ -35,7 +45,7 @@ inline void encodePhys(const PhysicalStripSettings &p, uint8_t *b) {
   put16(b + 0, p.ledCount);
   b[2] = p.brightnessPct;
   b[3] = p.layerCount;
-  b[4] = p.bleedPct;
+  b[4] = 0; // was bleedPct (now a per-layer softness)
   b[5] = 0;
 }
 
@@ -43,7 +53,7 @@ inline void decodePhys(const uint8_t *b, PhysicalStripSettings &p) {
   p.ledCount = get16(b + 0);
   p.brightnessPct = b[2];
   p.layerCount = b[3];
-  p.bleedPct = b[4];
+  // byte 4 was the old per-strip bleed; ignored now
 }
 
 // Layer block (32 bytes): triggers, effect, enabled, intensityPct, centerHz(2),
@@ -73,7 +83,7 @@ inline void encodeLayer(const LayerSettings &s, uint8_t *p) {
   p[25] = (uint8_t)((s.lfoPeriodMs + 10) / 20);
   put16(p + 26, s.attackMs);
   put16(p + 28, s.releaseMs);
-  p[30] = 0;
+  p[30] = s.softnessPct;
   p[31] = 0;
 }
 
@@ -100,6 +110,7 @@ inline void decodeLayer(const uint8_t *p, LayerSettings &s) {
   s.lfoPeriodMs = (uint16_t)p[25] * 20;
   s.attackMs = get16(p + 26);
   s.releaseMs = get16(p + 28);
+  s.softnessPct = p[30];
   if (s.lfoPeriodMs == 0) {
     s.lfoPeriodMs = 2000;
   }
@@ -143,7 +154,6 @@ inline void decodeStripV4(const uint8_t *p, PhysicalStripSettings &phys,
   l.beatSensitivityPct = p[24];
   l.effect = p[25];
   phys.layerCount = 1;
-  phys.bleedPct = 0;
   l.intensityPct = 100;
   l.motionThresholdPct = 30;
   l.lfoPeriodMs = 2000;
@@ -200,6 +210,31 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
         n += kLayerBlockSize;
       }
     }
+  } else if (in[0] == kBlobVersionV9 &&
+             len == kSettingsHeaderSize + kPhysBlockSize * kStripCount +
+                        kLayerBlockSize * kStripCount * kMaxLayersPerStrip) {
+    size_t n = kSettingsHeaderSize;
+    uint8_t bleed[kStripCount] = {};
+    for (size_t i = 0; i < kStripCount; i++) {
+      const uint8_t *b = in + n;
+      s.phys[i].ledCount = get16(b + 0);
+      s.phys[i].brightnessPct = b[2];
+      s.phys[i].layerCount = b[3];
+      bleed[i] = b[4];
+      n += kPhysBlockSize;
+    }
+    for (size_t i = 0; i < kStripCount; i++) {
+      for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
+        decodeLayer(in + n, s.layer[i][l]);
+        // v9 blurred the whole strip and left layer byte 30 at zero; v10
+        // softens each layer. Carry the setting across so a saved look does not
+        // silently change after an update.
+        if (s.layer[i][l].softnessPct == 0) {
+          s.layer[i][l].softnessPct = bleed[i];
+        }
+        n += kLayerBlockSize;
+      }
+    }
   } else if (in[0] == kBlobVersionV8 &&
              len == 2 + kPhysBlockSize * kStripCount +
                         kLayerBlockSize * kStripCount * kMaxLayersPerStrip) {
@@ -217,16 +252,15 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
     }
     s.agc = 0;
   } else if (in[0] == kBlobVersionV7 &&
-             len == kSettingsHeaderSize + 4 * kStripCount +
-                        (size_t)26 * kStripCount * kMaxLayersPerStrip) {
-    size_t n = kSettingsHeaderSize;
+             len == kHeaderV8 + kPhysBlockV8 * kStripCount +
+                        kLayerBlockV7 * kStripCount * kMaxLayersPerStrip) {
+    size_t n = kHeaderV8;
     for (size_t i = 0; i < kStripCount; i++) {
       const uint8_t *b = in + n;
       s.phys[i].ledCount = get16(b + 0);
       s.phys[i].brightnessPct = b[2];
       s.phys[i].layerCount = b[3];
-      s.phys[i].bleedPct = 0;
-      n += 4;
+      n += kPhysBlockV8;
     }
     for (size_t i = 0; i < kStripCount; i++) {
       for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
@@ -269,23 +303,52 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
       }
     }
   } else if (in[0] == kBlobVersionV6 &&
-             len == kSettingsHeaderSize + kPhysBlockSize * kStripCount +
-                        kLayerBlockSize * kStripCount * kMaxLayersPerStrip) {
-    size_t n = kSettingsHeaderSize;
+             len == kHeaderV8 + kPhysBlockV8 * kStripCount +
+                        kLayerBlockV7 * kStripCount * kMaxLayersPerStrip) {
+    size_t n = kHeaderV8;
     for (size_t i = 0; i < kStripCount; i++) {
-      decodePhys(in + n, s.phys[i]);
-      n += kPhysBlockSize;
+      const uint8_t *b = in + n;
+      s.phys[i].ledCount = get16(b + 0);
+      s.phys[i].brightnessPct = b[2];
+      s.phys[i].layerCount = b[3];
+      n += kPhysBlockV8;
     }
     for (size_t i = 0; i < kStripCount; i++) {
       for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
-        decodeLayer(in + n, s.layer[i][l]);
-        n += kLayerBlockSize;
+        LayerSettings &d = s.layer[i][l];
+        const uint8_t *b = in + n;
+        d.triggers = b[0];
+        d.effect = b[1];
+        d.enabled = b[2];
+        d.intensityPct = b[3];
+        d.centerHz = get16(b + 4);
+        d.widthHz = get16(b + 6);
+        d.thresholdPct = b[8];
+        d.beatSensitivityPct = b[9];
+        d.retriggerMs = get16(b + 10);
+        d.blobLeds = get16(b + 12);
+        d.speed = get16(b + 14);
+        d.fadeMs = get16(b + 16);
+        d.reverse = b[18];
+        d.loop = b[19];
+        d.retrigger = b[20];
+        d.r = b[21];
+        d.g = b[22];
+        d.b = b[23];
+        d.motionThresholdPct = b[24];
+        d.lfoPeriodMs = (uint16_t)b[25] * 20;
+        if (d.lfoPeriodMs == 0) {
+          d.lfoPeriodMs = 2000;
+        }
+        d.attackMs = 20;
+        d.releaseMs = 400;
+        n += kLayerBlockV7;
       }
     }
   } else if (in[0] == kBlobVersionV5 &&
-             len == kSettingsHeaderSize + kPhysBlockSize * kStripCount +
-                        (size_t)24 * kStripCount * kMaxLayersPerStrip) {
-    size_t n = kSettingsHeaderSize;
+             len == kHeaderV8 + kPhysBlockV8 * kStripCount +
+                        kLayerBlockV5 * kStripCount * kMaxLayersPerStrip) {
+    size_t n = kHeaderV8;
     for (size_t i = 0; i < kStripCount; i++) {
       decodePhys(in + n, s.phys[i]);
       n += kPhysBlockSize;
@@ -321,13 +384,13 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out) {
       }
     }
   } else if (in[0] == kBlobVersionV4 &&
-             len == kSettingsHeaderSize + kStripBlockV4 * kStripCount) {
+             len == kHeaderV8 + kStripBlockV4 * kStripCount) {
     for (size_t i = 0; i < kStripCount; i++) {
       decodeStripV4(in + kSettingsHeaderSize + i * kStripBlockV4, s.phys[i],
                     s.layer[i][0]);
     }
   } else if (in[0] == kBlobVersionV3 &&
-             len == kSettingsHeaderSize + kStripBlockV3 * kStripCount) {
+             len == kHeaderV8 + kStripBlockV3 * kStripCount) {
     for (size_t i = 0; i < kStripCount; i++) {
       decodeStripV3(in + kSettingsHeaderSize + i * kStripBlockV3, s.phys[i],
                     s.layer[i][0]);

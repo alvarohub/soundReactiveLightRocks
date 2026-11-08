@@ -787,6 +787,61 @@ The slider is disabled while AGC is on.
 
 Blob **v9** (header grew by the `agc` byte), v8 migrates.
 
+## 2026-11-08 (late) — Saved layers vanished after flashing; softness moves to the layer
+
+### The bug: every legacy migration path was off by one byte
+
+Symptom: after flashing, the GUI showed **one** layer although four were saved and
+reachable before.
+
+Cause: when `agc` was added, `kSettingsHeaderSize` grew from 2 to 3 — and all the
+legacy branches compared the incoming length against that *current* constant:
+
+```cpp
+len == kSettingsHeaderSize + ...      // 3 + ..., but an old blob is 2 + ...
+```
+
+So a v7 blob (218 bytes) was checked against 219, a v6 blob against 271, and so on.
+Every old blob failed to decode, `decodeSettings()` returned false and the firmware
+used `defaultSettings()` — one layer, nothing in NVS reachable.
+
+Fixed with explicit legacy constants (`kHeaderV8 = 2`, `kPhysBlockV8 = 4`,
+`kLayerBlockV7 = 26`, `kLayerBlockV5 = 24`) and, while there, the v6 branch was
+decoding with the *current* block decoders (wrong layout) — rewritten to read the v7
+layout properly.
+
+Verified with a host test that builds synthetic v6/v7/v8/v9 blobs and decodes them:
+
+| blob | result |
+|------|--------|
+| v7 (218 B) | ok, layerCount 4 |
+| v6 (218 B) | ok, layerCount 4 |
+| v8 (270 B) | ok, layerCount 4 |
+| v9 (271 B) | ok, layerCount 4, strip bleed → layer softness |
+
+**Lesson:** a decoder for version N must never use the current version's size
+constants. Sizes are part of the format, so they have to be frozen per version.
+
+### Softness belongs to the layer
+
+"That's not about blending layers inside a strip, it's the blur, right?" — correct,
+and the strip-level `bleed()` was the wrong primitive: a convolution on the merged
+frame cannot know whose edge it is softening, and on an already smooth blob it was
+barely visible.
+
+Now `LayerSettings::softnessPct` widens that layer's profile
+(`halfWidth × (1 + softness)`), so at 100 % a blob is twice as wide and its edges
+carry light outward. `LedStrip::bleed()` is deleted. The control moved from the strip
+card into the layer's Display card, and a v9 strip bleed is carried into the layer
+softness on load.
+
+### Verified
+
+- Host round trip and four migration cases (table above).
+- Browser: 3 saved layers restored as 3 tabs, strip card is
+  `brightness → layers`, Display card shows `intensity + softness 65%`, AGC ON.
+- Both envs build clean.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

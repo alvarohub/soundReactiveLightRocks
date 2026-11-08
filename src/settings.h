@@ -56,6 +56,9 @@ struct LayerSettings {
   uint8_t effect = kEffectJet;
   uint8_t enabled = 1;
   uint8_t intensityPct = 100; // this layer's weight in the merged output (1..100)
+  // Softness: widens this layer's spatial profile, so its edges bleed outward.
+  // A layer property because it shapes *this* blob, before anything is merged.
+  uint8_t softnessPct = 0;
 
   // The layer only listens to this window: center +/- width/2.
   uint16_t centerHz = 150;
@@ -93,7 +96,6 @@ struct PhysicalStripSettings {
   uint16_t ledCount = kDefaultLedsPerStrip;
   uint8_t brightnessPct = 100; // master ceiling for this strip (1..100)
   uint8_t layerCount = 1;      // how many of the kMaxLayersPerStrip slots are live
-  uint8_t bleedPct = 0;        // spatial blur applied to the merged frame
 };
 
 // Runtime parameters, shared by the strips, the screen and the web UI. Every
@@ -139,7 +141,6 @@ inline void clampPhysicalStrip(PhysicalStripSettings &p) {
   p.ledCount = clampU16(p.ledCount, Settings::kMinLeds, Settings::kMaxLeds);
   p.brightnessPct = clampU8(p.brightnessPct, 1, Settings::kMaxBrightnessPct);
   p.layerCount = clampU8(p.layerCount, 1, (uint8_t)kMaxLayersPerStrip);
-  p.bleedPct = clampU8(p.bleedPct, 0, 100);
 }
 
 inline void clampLayer(LayerSettings &s) {
@@ -151,6 +152,7 @@ inline void clampLayer(LayerSettings &s) {
   s.enabled = s.enabled ? 1 : 0;
   s.intensityPct =
       clampU8(s.intensityPct, Settings::kMinIntensityPct, 100);
+  s.softnessPct = clampU8(s.softnessPct, 0, 100);
 
   s.centerHz = clampU16(s.centerHz, Settings::kMinCenterHz, Settings::kMaxCenterHz);
   s.widthHz = clampU16(s.widthHz, Settings::kMinWidthHz, Settings::kMaxWidthHz);
@@ -286,7 +288,7 @@ constexpr size_t kSettingsHeaderSize = 3; // version, gainDb, agc
 constexpr size_t kSettingsBlobSize =
     kSettingsHeaderSize + kPhysBlockSize * kStripCount +
     kLayerBlockSize * kStripCount * kMaxLayersPerStrip;
-constexpr uint8_t kSettingsBlobVersion = 9;
+constexpr uint8_t kSettingsBlobVersion = 10;
 
 void encodeSettings(const Settings &s, uint8_t *out);
 bool decodeSettings(const uint8_t *in, size_t len, Settings &out);
