@@ -236,7 +236,9 @@ audio frame → FFT → band-limited spectral flux → adaptive threshold → on
   gain also silenced the detector.
 * **Silence gate**: if the layer's band level is below `0.06` the frame counts as
   silence and no beat can fire, however the adaptive statistics look. The tempo lock
-  is also dropped immediately, so silence never reports a BPM.
+  is also dropped immediately, so silence never reports a BPM. The gate compares the
+  level **with the microphone gain removed**, so turning the gain down attenuates
+  what you hear without switching the beat detector off.
 * **Threshold**: adaptive, `mean + k·σ` over a ~900 ms window, with `k` from
   `beatSensitivityPct` (3.2σ at 0 %, 0.6σ at 100 %).
 * **Refractory**: 180 ms minimum interval (rejects double triggers, caps at 333 BPM).
@@ -333,10 +335,12 @@ it when the slider is released.
   `Whip`.
 * **Layer intensity** scales one layer against the others; **Strip max brightness**
   scales the merged result.
-* **Full-Screen Effect Pads**: a dedicated overlay with **one group per layer**
-  (strip + layer in the heading), each with the four effect pads. Pads are
-  multi-touch and support press-and-hold (Flash and Sparkle sustain; Jet re-fires at
-  the retrigger gap). Each group shows that layer's live trigger state and output.
+* **Full-Screen Effect Pads**: a dedicated overlay, laid out as one **column per
+  physical strip** (Strip A left, Strip B right) with only the layers that have been
+  added. Each layer block has four compact effect pads; they are multi-touch and
+  support press-and-hold (Flash and Sparkle sustain; Jet re-fires at the retrigger
+  gap). Each block shows that layer's live trigger state and output. The overlay
+  scrolls and keeps the same 1/6 thumb gutter as the control page.
 * Live readouts: broadband level, dBFS, dominant frequency, per-strip beat pulse /
   BPM, active effect count, and a bar showing the level against the threshold.
 

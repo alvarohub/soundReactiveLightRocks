@@ -529,6 +529,60 @@ explicitly so the sign survives as two's complement.
 - The threshold trigger has no equivalent silence gate; if the user reports false
   threshold fires in silence, the same idea applies there.
 
+## 2026-11-08 — Pad layout rework & beat gate vs. mic gain
+
+### Reported by the user
+
+1. After uploading, "I don't see the auto-beat trigger".
+2. "What happened with the glow mode?"
+3. The Live Effect Pads window cannot be scrolled and has no right-side margin.
+4. Make the pad buttons smaller and group layers by strip, two columns (A left,
+   B right); do not show layers that were not added.
+
+### Found: the silence gate fought the new negative gain
+
+This is almost certainly (1). The gate I added yesterday compares the **band level**,
+and `bandLevel()` includes the microphone gain. With gain at −12 or −24 dB the level
+drops by up to 0.65 of the 0..1 range, so it can sit below the 0.06 gate even while
+music is playing — the beat detector then never fires at all, which reads exactly as
+"the auto-beat trigger is not there".
+
+Fix: the gate now receives the level **with the gain removed**
+(`level − gainDb / kLevelRangeDb`), so gain attenuates what you hear without
+disabling detection. `SpectrumAnalyzer::kLevelRangeDb` and a `clampLevel()` helper
+were exposed for this.
+
+### Also hardened
+
+`stateJson()` had a 3400-byte buffer with a measured worst case of 3062 — a silent
+truncation there would produce invalid JSON and a half-built page, which is another
+way for the beat chip to "disappear". Raised to 4096 and made **static** rather than
+stack-allocated.
+
+### Pad overlay rework
+
+* scrolls now (`touch-action:pan-y`, `overflow-y:auto`, momentum scrolling);
+* keeps the same 1/6 viewport thumb gutter as the control page (dashed divider);
+* layout is a two-column grid: **Strip A | Strip B**, each column stacking its own
+  layers, with a `Strip X · N layers` header;
+* pads are 42 px tall instead of 60, smaller type, tighter 2x2 grid;
+* only added layers are rendered (`l < layerCount`), so a one-layer strip shows one
+  block, not four.
+
+### Verified
+
+- Both envs build, no warnings. RAM 30.1 % / 30.5 % (the static JSON buffer accounts
+  for most of the increase from 29.3 %).
+- Browser: overlay `scrollHeight 499 > clientHeight 445`, `overflow-y:auto`,
+  `padding-right 91.8px`, `touch-action:pan-y`, pad height 42 px, columns
+  `Strip A: 3 groups` and `Strip B: 1 group`.
+
+### Open
+
+- Whether "glow mode" means a *new* effect (the sister project had a Glow mode; this
+  firmware never did) — asked the user.
+- The threshold trigger still has no silence gate.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

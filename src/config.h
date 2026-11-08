@@ -100,4 +100,4 @@ constexpr int8_t kGainStepDb = 6;
 // Web UI.
 // ---------------------------------------------------------------------------
 
-constexpr size_t kStateJsonMaxBytes = 3400;
+constexpr size_t kStateJsonMaxBytes = 4096;

@@ -91,9 +91,15 @@ void renderStrip(size_t i, uint32_t nowMs, float dtSec, Telemetry &tele) {
 
     const float level =
         analyzer.bandLevel((float)s.centerHz, (float)s.widthHz);
-    // The band level doubles as the silence gate: no sound, no beat.
+    // Silence gate input: the band level with the microphone gain removed, so a
+    // negative gain attenuates what you hear without also disabling the beat
+    // detector. (The raw level would fall below the gate and beats would never
+    // fire, which is exactly how this surfaced.)
+    const float gateLevel =
+        analyzer.clampLevel(level - (float)settings.gainDb /
+                                        SpectrumAnalyzer::kLevelRangeDb);
     const BeatInfo beat = beats[i][l].update(
-        analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), level, dtMs,
+        analyzer.bandFlux((float)s.centerHz, (float)s.widthHz), gateLevel, dtMs,
         s.beatSensitivityPct);
 
     // Pads only reach a layer that has the tap trigger armed, so the

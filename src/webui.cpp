@@ -77,21 +77,28 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .ptitle{margin:0 0 8px;padding-left:9px;border-left:4px solid #58a6ff;font-weight:600;color:#f0f6fc}
 .ptitle small{display:block;font-weight:400;font-size:.76rem;color:#8b949e;margin-top:2px}
 /* ---- full-screen pad view ---- */
-#padscreen{position:fixed;inset:0;z-index:100;background:#0b0e13;display:none;flex-direction:column;padding:8px 10px 10px;gap:6px;user-select:none;-webkit-user-select:none;touch-action:none;overflow-y:auto}
+/* Same 1/6 viewport thumb gutter as the control page, and it scrolls: the pads
+   are tall, and a non-scrollable overlay on a phone traps the user. */
+#padscreen{position:fixed;inset:0;z-index:100;background:#0b0e13;display:none;flex-direction:column;padding:8px 16.7vw 22px 8px;gap:6px;user-select:none;-webkit-user-select:none;touch-action:pan-y;overflow-y:auto;-webkit-overflow-scrolling:touch;border-right:1px dashed #21262e}
 #padscreen.open{display:flex}
 .padtop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:none}
 .padtop b{font-size:.98rem;color:#f0f6fc}
 .padclose{padding:7px 14px;border-radius:9px;border:1px solid #3a424d;background:#21262e;color:#e6edf3;font-size:.86rem;font-weight:600;cursor:pointer}
-.pgrp{flex:none;border-radius:14px;border:2px solid var(--c,#58a6ff);background:#141820;padding:7px 9px;box-shadow:inset 0 0 22px rgba(0,0,0,.6)}
-.pghdr{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.84rem;margin-bottom:5px}
+/* Strip A | Strip B side by side; each column stacks only the layers that exist. */
+#padgroups{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
+.padcol{display:flex;flex-direction:column;gap:6px;min-width:0}
+.colhdr{display:flex;justify-content:space-between;align-items:center;gap:4px;font-size:.78rem;font-weight:700;color:#f0f6fc;padding:1px 2px}
+.colhdr span{font-weight:400;font-size:.66rem;color:#8b949e;font-variant-numeric:tabular-nums}
+.pgrp{flex:none;border-radius:10px;border:2px solid var(--c,#58a6ff);background:#141820;padding:5px 6px;box-shadow:inset 0 0 14px rgba(0,0,0,.6)}
+.pghdr{display:flex;justify-content:space-between;align-items:center;gap:4px;font-size:.72rem;margin-bottom:4px}
 .pghdr b{color:#f0f6fc;display:flex;align-items:center;gap:6px}
 .pdot{width:11px;height:11px;border-radius:50%;background:var(--c,#58a6ff);display:inline-block;box-shadow:0 0 8px var(--c,#58a6ff)}
-.pghdr span{color:#8b949e;font-size:.74rem;font-variant-numeric:tabular-nums}
-.pgbar{height:4px;border-radius:3px;background:#21262e;overflow:hidden;margin-bottom:6px}
+.pghdr span{color:#8b949e;font-size:.6rem;font-variant-numeric:tabular-nums;text-align:right}
+.pgbar{height:3px;border-radius:2px;background:#21262e;overflow:hidden;margin-bottom:5px}
 .pgbar i{display:block;height:100%;width:0;background:var(--c,#58a6ff);transition:width 60ms linear}
-.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-.pad{position:relative;min-height:60px;border-radius:11px;border:2px solid var(--c,#58a6ff);background:radial-gradient(circle at 38% 32%,rgba(255,255,255,.13),rgba(15,17,21,.93) 72%);color:#f0f6fc;font-weight:700;font-size:.98rem;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;box-shadow:0 0 14px -5px var(--c,#58a6ff),inset 0 0 16px rgba(0,0,0,.75);transition:transform 55ms ease,box-shadow 80ms ease,background 80ms ease}
-.pad small{font-size:.6rem;font-weight:500;color:#9da7b3;margin-top:1px;letter-spacing:.02em}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.pad{position:relative;min-height:42px;border-radius:8px;border:2px solid var(--c,#58a6ff);background:radial-gradient(circle at 38% 32%,rgba(255,255,255,.13),rgba(15,17,21,.93) 72%);color:#f0f6fc;font-weight:700;font-size:.78rem;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;box-shadow:0 0 14px -5px var(--c,#58a6ff),inset 0 0 16px rgba(0,0,0,.75);transition:transform 55ms ease,box-shadow 80ms ease,background 80ms ease}
+.pad small{font-size:.52rem;font-weight:500;color:#9da7b3;margin-top:0;letter-spacing:0;line-height:1.1;text-align:center}
 .pad.hit{transform:scale(.95);background:radial-gradient(circle at 50% 50%,#fff 0%,var(--c,#58a6ff) 58%,#141820 100%);box-shadow:0 0 26px 3px var(--c,#58a6ff),inset 0 0 12px #fff;color:#0b0e13}
 .pad.hit small{color:#0b0e13}
 </style>
@@ -321,13 +328,19 @@ function buildLayerTabs(){
  }
 }
 function buildPads(){
+ // One column per physical strip, side by side. Only layers that have actually
+ // been added (l < layerCount) are drawn, so an untouched strip shows a single
+ // pad block instead of four empty ones.
  var html='';
  for(var p=0;p<ST.strips.length;p++){
   var st=ST.strips[p];
+  html+='<div class=padcol id=padcol'+p+'>'
+   +'<div class=colhdr>Strip '+String.fromCharCode(65+p)
+   +'<span id=colst'+p+'>'+st.layerCount+' layer'+(st.layerCount>1?'s':'')+'</span></div>';
   for(var l=0;l<st.layerCount;l++){
    var lay=st.layers[l],c='#'+(lay.color||'808080');
    html+='<div class=pgrp id=pgrp'+p+'_'+l+' style="--c:'+c+'">'
-    +'<div class=pghdr><b><i class=pdot></i>Strip '+(p+1)+' &middot; Layer '+(l+1)+'</b>'
+    +'<div class=pghdr><b><i class=pdot></i>Layer '+(l+1)+'</b>'
     +'<span id=pgst'+p+'_'+l+'>-</span></div>'
     +'<div class=pgbar><i id=pgb'+p+'_'+l+'></i></div><div class=pgrid>';
    PADEFFS.forEach(function(pe){
@@ -335,6 +348,7 @@ function buildPads(){
    });
    html+='</div></div>';
   }
+  html+='</div>';
  }
  $('padgroups').innerHTML=html;
  for(var p2=0;p2<ST.strips.length;p2++){
@@ -867,9 +881,10 @@ String WebUi::ip() const {
 }
 
 String WebUi::stateJson() const {
-  // A short buffer would silently truncate the JSON and break the page, so this
-  // is sized for the worst case (see kStateJsonMaxBytes).
-  char buf[kStateJsonMaxBytes];
+  // Sized for the worst case (see kStateJsonMaxBytes). Static rather than on the
+  // stack: 4 KB in a loop task with an 8 KB stack is not worth risking, and this
+  // is only ever called from the single-threaded web server.
+  static char buf[kStateJsonMaxBytes];
   size_t n = 0;
   buf[0] = '\0';
   const uint32_t nowMs = millis();

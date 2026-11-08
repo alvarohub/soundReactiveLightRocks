@@ -18,6 +18,10 @@ public:
   static constexpr size_t kBins = kSamples / 2; // usable magnitude bins
   static constexpr size_t kBands = 30;          // log-spaced display bands
 
+  // Width of the dB window that level()/bandLevel() map onto 0..1. Exposed so
+  // callers can undo the microphone gain (level shifts by gainDb / this).
+  static constexpr float kLevelRangeDb = 37.0f;
+
   bool begin(uint32_t sampleRateHz);
 
   // Blocks until one frame has been captured and analysed (~32 ms at 16 kHz).
@@ -39,6 +43,10 @@ public:
 
   // Which display bar a frequency falls in, used to draw the band on screen.
   int bandFromHz(float hz) const;
+
+  static float clampLevel(float v) {
+    return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+  }
 
   // Spectral flux of the last frame: the summed positive change of the
   // spectrum. bandFlux() restricts this to center +/- width/2 Hz and normalises
