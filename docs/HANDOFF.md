@@ -136,6 +136,42 @@ Implemented exactly as planned:
 - Up to **4 layers** per physical strip; blob v5 with v4/v3 migration.
 - GUI: nested Layer tabs, add/remove, solo; pad overlay has one group per layer.
 
+### The page must survive a dropped socket (2026-11-08)
+The board's web server serves **one socket at a time**, but the page could open
+two: `poll()` only checked `INFLIGHT` and `flush()` only checked `INFLIGHT`, so a
+600 ms state read could overlap a slider POST. When the board dropped the second
+socket, that `fetch` never settled — there was no timeout — so `INFLIGHT` stayed
+true and `flush()` returned early *forever*. Nothing was sent again until the page
+was reloaded, while the LEDs kept running: "sometimes I cannot change a value".
+
+Rules now:
+* **One socket.** `busySocket()` = `INFLIGHT || POLL_BUSY`; `flush()` waits for a
+  poll to finish, `poll()` waits for a POST. Both flags are cleared on every exit
+  path, including a rejected fetch.
+* **Every request has a deadline** (`abortAfter`, 2.5 s for state/params, 4 s for
+  presets). A hung request is abandoned, not waited on.
+* **A failed POST is retried once** with the same value, so a swallowed edit is not
+  silently lost.
+
+### The GUI mirrors the board; it does not remember what it last sent (2026-11-08)
+`apply()` now refills every control whenever the page is idle (`!editing()` and
+~900 ms since the last user action), not only when the layer structure changes.
+That makes drift self-healing within one poll: a dropped POST, a change made from
+the other phone, AGC moving the gain, or the board's own buttons all end up on
+screen instead of being resurfaced on the next unrelated edit.
+
+`editing()` = wheel drag || threshold drag || a range input is being dragged. The
+drag flags are cleared by **window-level** `pointerup`/`pointercancel`/`blur`, not
+by the element's own handler — a finger that leaves the bar used to latch the flag
+and silently stop polling until reload.
+
+### Readouts must not reflow (2026-11-08)
+`lvl 7%` → `lvl 100% · 174 BPM · beat 100% · 12 active` used to wrap the row label
+and shove the meter and every card below it up and down several times a second.
+Live lines (`#mt0`, `.ptitle small`, the pad group headers) are `nowrap` with
+`text-overflow:ellipsis`, so the height is constant. Verified by measuring the row
+height and the meter's `top` at four different text lengths — identical.
+
 ### The layer tab row is derived from state, never from button handlers (2026-11-08)
 `buildLayerTabs()` used to be called only from `fillInputs()`, which `apply()` ran
 once (a `SEEDED` guard) and the add/remove buttons ran by hand. But `/api/state` is

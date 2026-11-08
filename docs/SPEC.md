@@ -418,6 +418,15 @@ it when the slider is released.
 * The per-layer pair `Layer power` + `Layer intensity` closes the strip card, right
   under the layer title, so switching a layer off and setting its weight are the
   same gesture. Colour and softness live in the **Display** card below.
+* **Layer tabs are painted with the layer's colour** (filled when selected, dimmed
+  when the layer is powered off), so a beam is recognisable without reading titles.
+* The page keeps **one request in flight at a time** — the board serves one socket —
+  and every request has a 2.5 s deadline, so a dropped socket can never wedge the
+  UI. While idle the page re-reads `/api/state` every 600 ms and re-fills the
+  controls from it, so the screen always converges on what the board holds.
+* Live readouts (`lvl …%, … active`, the layer subtitle, the pad group headers) are
+  single-line and truncated rather than wrapped, so growing numbers never reflow
+  the page.
 * The page header shows the **firmware version** (`LightRocks-1 · 192.168.4.1 · v1.0`)
   so it is obvious whether an upload actually took.
 * **Trigger inputs** are five tickable chips (`Threshold`, `Auto beat`, `Tap pads`,

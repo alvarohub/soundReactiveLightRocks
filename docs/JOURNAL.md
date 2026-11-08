@@ -902,6 +902,75 @@ Verified in the browser against a mock device: the slider is still bound per lay
 the strip card order is `Physical strip → Strip brightness → Light layers inside →
 tabs → title → Layer power → Layer intensity`.
 
+## 2026-11-08 — Deep pass on GUI / firmware / NVS consistency
+
+The report was: after a reload the page sometimes shows parameters the board does
+not have, values sometimes refuse to change (the threshold especially), and the
+`lvl …%, n active` line jumps up and down while it updates.
+
+### Root cause of "the values won't change"
+
+The board's `WebServer` serves one client at a time, and the page had two
+independent request paths that did not know about each other:
+
+```js
+poll():  if (INFLIGHT || POLL_BUSY || ...) return;   // knows nothing of a POST
+flush(): if (INFLIGHT) return;                       // knows nothing of the poll
+```
+
+A 600 ms state read landing at the same moment as a slider POST meant two sockets.
+The board accepted one and dropped the other, and because `fetch` had **no timeout**
+the dropped one never settled. `INFLIGHT` stayed `true` for minutes; every later
+`flush()` returned immediately, so no edit could reach the board, and `poll()` never
+ran again so the page stopped mirroring it. That single stall explains both the
+"stuck" controls and the "the GUI doesn't match the MCU" reports.
+
+Fixes:
+* `busySocket()` = `INFLIGHT || POLL_BUSY`, respected by both paths.
+* every request carries an `AbortController` deadline (2.5 s / 4 s for presets);
+  the flags are cleared in the reject path too.
+* a failed POST is retried once with the same value.
+
+### Drift is now corrected instead of trusted
+
+`apply()` refills the controls whenever the page is idle, so the screen converges
+on the board within one poll. The page also yields: a poll is skipped while a
+gesture is in progress or within 900 ms of the last edit. The gesture flags are
+cleared at window level (`pointerup`/`pointercancel`/`blur`), which fixes the
+latched-drag bug that used to stop polling until reload.
+
+### Readout jitter
+
+`#mt0` grows from `lvl 7%` to `lvl 100% · 174 BPM · beat 100% · 12 active`; the row
+label beside it wrapped, changing the row height and moving the meter and every card
+below it. Live text lines are now `nowrap` + ellipsis. Measured: the row height
+(20.875 px) and the meter's `top` are identical at four different text lengths.
+
+### Layer tabs carry their colour
+
+`Layer N` tabs are painted with the layer's colour - border and text, filled when
+selected, dimmed when the layer is powered off - so a beam can be identified at a
+glance. The tab row is only rebuilt when the layer *count* changes; the colours are
+repainted on every state apply and on every colour-wheel move.
+
+### Audit harness (keep this)
+
+A throwaway page function compares three views and lists the differences:
+
+```
+DOM (`$('speed').value`)  <->  page state (`ST`)  <->  board state (`/api/state`)
+```
+
+Results after the fixes, against a mock device that clamps like the firmware:
+
+| scenario | DOM vs state | state vs board |
+|----------|--------------|----------------|
+| fresh load | none | none |
+| after edits (threshold drag, softness, speed, beat chip, colour wheel) | none | none |
+| board changed behind the page (colour, gain, level) | none | none |
+| after reload | none | none |
+| after a stalled POST + recovery | none | none (converges in one poll) |
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

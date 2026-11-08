@@ -76,7 +76,11 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .btn.warn{background:#2a1a1a;border-color:#6b2b2b;color:#ff7b72}
 #pmsg{color:#8b949e;font-size:.78rem;font-weight:400}
 .ptitle{margin:0 0 8px;padding-left:9px;border-left:4px solid #58a6ff;font-weight:600;color:#f0f6fc}
-.ptitle small{display:block;font-weight:400;font-size:.76rem;color:#8b949e;margin-top:2px}
+.ptitle small{display:block;font-weight:400;font-size:.76rem;color:#8b949e;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Live readouts must never reflow: a value that grows ('lvl 7%' to 'lvl 100%') would
+   otherwise wrap the label and shove the meter and every card below it up and down. */
+#mt0{white-space:nowrap;flex:none}
+#mtlbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* ---- full-screen pad view ---- */
 /* Same 1/6 viewport thumb gutter as the control page, and it scrolls: the pads
    are tall, and a non-scrollable overlay on a phone traps the user. */
@@ -94,7 +98,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .pghdr{display:flex;justify-content:space-between;align-items:center;gap:4px;font-size:.72rem;margin-bottom:4px}
 .pghdr b{color:#f0f6fc;display:flex;align-items:center;gap:6px}
 .pdot{width:11px;height:11px;border-radius:50%;background:var(--c,#58a6ff);display:inline-block;box-shadow:0 0 8px var(--c,#58a6ff)}
-.pghdr span{color:#8b949e;font-size:.6rem;font-variant-numeric:tabular-nums;text-align:right}
+.pghdr span{color:#8b949e;font-size:.6rem;font-variant-numeric:tabular-nums;text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pgbar{height:3px;border-radius:2px;background:#21262e;overflow:hidden;margin-bottom:5px}
 .pgbar i{display:block;height:100%;width:0;background:var(--c,#58a6ff);transition:width 60ms linear}
 .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
@@ -172,8 +176,29 @@ var S=0,L=0,ST=null,BUILT=false,SEEDED=false,TRIG=1,EFF=0,REV=0,LOOP=1,RETRIG=1,
 var TB={thr:1,beat:2,tap:4,accel:8,gyro:16,lfo:32};
 var CUR_COL='#ff6a00',WHEEL_BG=null,WX=76,WY=76,WDRAG=false,TDRAG=-1,MSGTMR=0;
 var INFLIGHT=false,POLL_BUSY=false,LAST=null,PTMR=0,AFTER=null,HOLD_TMRS={},AGC=0;
+var USER_TS=0,RETRY=0;
 
 function $(i){return document.getElementById(i);}
+
+/* ---- "the user is touching something" ----
+   Polls must never overwrite a control mid-gesture. Catching the end of a drag
+   on the window (not on the element) also fixes the old stuck state: a finger
+   that left the bar, or a scrolled page, used to leave the drag flag set and
+   silently stop all polling until the page was reloaded. */
+var DRAGGING=0;
+function editing(){return WDRAG||TDRAG>=0||DRAGGING>0;}
+document.addEventListener('pointerdown',function(e){
+ var t=e.target;
+ if(t&&t.tagName==='INPUT'&&t.type==='range')DRAGGING=1;
+},true);
+function endDrag(){
+ DRAGGING=0;
+ if(WDRAG){WDRAG=false;flush();}
+ TDRAG=-1;
+}
+document.addEventListener('pointerup',endDrag,false);
+document.addEventListener('pointercancel',endDrag,false);
+window.addEventListener('blur',endDrag);
 function hex2(n){var s=Math.round(n).toString(16);return s.length<2?'0'+s:s;}
 function hsvToRgb(h,s,v){
  var c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c,r=0,g=0,b=0;
@@ -199,9 +224,25 @@ function layerCount(){var p=phys();return p?Math.max(1,p.layerCount):1;}
 function nameOf(i){return 'Strip '+(i+1);}
 
 /* ---- one request in flight, latest value wins ---- */
+/* The board's web server serves one socket at a time. Two overlapping requests
+   (a poll landing on top of a slider POST) made it drop the second one, and
+   without a timeout that fetch never settled: INFLIGHT stayed true and the page
+   silently refused to send anything again while the LEDs kept running. Every
+   request now has a deadline, and both flags are cleared whatever happens. */
+function abortAfter(ms){
+ if(!window.AbortController)return {};
+ var ctl=new AbortController();
+ setTimeout(function(){try{ctl.abort();}catch(e){}},ms);
+ return {signal:ctl.signal};
+}
+function busySocket(){return INFLIGHT||POLL_BUSY;}
 function flush(){
  if(PTMR){clearTimeout(PTMR);PTMR=0;}
- if(INFLIGHT)return;
+ if(busySocket()){
+  // Only one socket at a time: wait for the state read to finish.
+  if(!PTMR)PTMR=setTimeout(function(){PTMR=0;flush();},60);
+  return;
+ }
  if(!LAST){
   // Nothing to send: run a pending state refresh now, otherwise it waits for a
   // request that may never come and the page keeps a stale view of the board.
@@ -210,26 +251,37 @@ function flush(){
  }
  var url=LAST;LAST=null;
  INFLIGHT=true;
- /* Strict single-in-flight: a follow-up fetch only runs once the params POST
-    has completed, so the board never sees two sockets at once. */
- var done=function(){
+ var done=function(ok){
   INFLIGHT=false;
+  if(!ok&&RETRY<2&&!LAST){RETRY++;LAST=url;}
+  else if(ok){RETRY=0;}
   if(LAST){if(!PTMR)PTMR=setTimeout(function(){PTMR=0;flush();},45);return;}
   if(AFTER){var f=AFTER;AFTER=null;f();}
  };
- fetch('/api/params?'+url,{method:'POST'}).then(done,done);
+ var opt=abortAfter(2500);
+ opt.method='POST';
+ fetch('/api/params?'+url,opt).then(function(r){done(r.ok);},function(){done(false);});
+}
+function fetchState(){
+ var opt=abortAfter(2500);
+ opt.cache='no-store';
+ return fetch('/api/state',opt).then(function(r){
+  if(!r.ok)throw new Error('http '+r.status);
+  return r.json();
+ });
 }
 function syncState(then){
  AFTER=function(){
-  fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
-   apply(s);if(then)then();
-  }).catch(function(){});
+  fetchState().then(function(s){apply(s);if(then)then();})
+   .catch(function(){flashMsg('sync lost - reload the page');});
  };
  flush();
 }
+/* Any request the page makes counts as "the user is busy": a poll that lands in
+   that window would otherwise fight the control being moved. */
 function sendRaw(q){
- LAST=q;
- if(!PTMR&&!INFLIGHT){PTMR=setTimeout(function(){PTMR=0;flush();},55);}
+ LAST=q;USER_TS=Date.now();
+ if(!PTMR&&!busySocket()){PTMR=setTimeout(function(){PTMR=0;flush();},55);}
 }
 function sendLayer(k,v){sendRaw('strip='+S+'&layer='+L+'&'+k+'='+encodeURIComponent(v));}
 function sendPhys(k,v){sendRaw('strip='+S+'&'+k+'='+encodeURIComponent(v));}
@@ -332,18 +384,42 @@ function buildSelectors(n){
   };})(j);
  }
 }
+var TAB_N=-1;
 function buildLayerTabs(){
  var p='',n=layerCount();
- for(var i=0;i<n;i++)p+='<button id=lt'+i+'>Layer '+(i+1)+'</button>';
- var box=$('layertabs');
- box.innerHTML=p;
  // A single layer has nothing to choose between, so no pointless tab row.
  // The count says so in words, otherwise "1 of 4" with no tabs reads as four
  // layers hiding somewhere.
- box.style.display=n>1?'':'none';
+ if(n!==TAB_N){
+  TAB_N=n;
+  for(var i=0;i<n;i++)p+='<button id=lt'+i+'>Layer '+(i+1)+'</button>';
+  var box=$('layertabs');
+  box.innerHTML=p;
+  box.style.display=n>1?'':'none';
+  for(var j=0;j<n;j++){
+   (function(k){$('lt'+k).onclick=function(){flush();L=k;fillInputs();live();};})(j);
+  }
+ }
  if($('lcv'))$('lcv').textContent=n>1?(n+' of 4'):'1 of 4 \u00b7 single beam';
- for(var j=0;j<n;j++){
-  (function(k){$('lt'+k).onclick=function(){flush();L=k;fillInputs();live();};})(j);
+ paintLayerTabs();
+}
+
+/* Each tab carries its layer's colour, so "the green beam" is one tap away
+   without reading the titles. The selected tab is filled with that colour; the
+   text flips to dark on light colours so it stays readable. */
+function paintLayerTabs(){
+ var p=phys();
+ if(!p||!p.layers)return;
+ for(var i=0;i<TAB_N;i++){
+  var b=$('lt'+i);
+  if(!b)continue;
+  var lay=p.layers[i],col='#'+(lay&&lay.color?lay.color:'808080');
+  var r=parseInt(col.substr(1,2),16)||0,g=parseInt(col.substr(3,2),16)||0,bl=parseInt(col.substr(5,2),16)||0;
+  var luma=0.299*r+0.587*g+0.114*bl;
+  b.style.borderColor=col;
+  b.style.background=(i===L)?col:'#161a20';
+  b.style.color=(i===L)?(luma>140?'#0b0e13':'#f0f6fc'):col;
+  b.style.opacity=(lay&&!lay.enabled)?'.45':'1';
  }
 }
 function buildPads(){
@@ -638,7 +714,8 @@ function refreshTitle(){
   +(c.enabled?'on':'off')+' &middot; '+trig+' &middot; '+effName(EFF)
   +' &middot; '+c.intensityPct+'% weight &middot; '+$('speed').value+' LED/s</small>';
  // lcv is written by buildLayerTabs(), so the count and the tabs never disagree.
- $('tabhint').textContent=p.ledCount+' LEDs · '+p.brightnessPct+'% output';}
+ $('tabhint').textContent=p.ledCount+' LEDs · '+p.brightnessPct+'% output';
+ paintLayerTabs();}
 
 function labels(){
  [TRIGSPEC,ANIMSPEC].forEach(function(list){
@@ -858,12 +935,24 @@ function apply(s){
   if(L>layerCount()-1)L=layerCount()-1;
   fillInputs();
  }
+ else if(!editing()&&!LAST&&Date.now()-USER_TS>900){
+  // Nothing is being touched, so make the controls say exactly what the board
+  // holds. Whatever drifted - a dropped POST, the other phone, AGC nudging the
+  // gain, the board's own buttons - is corrected within one poll instead of
+  // staying on screen and being sent back on the next edit.
+  fillInputs();
+ }
  live();
 }
 function post(u,refresh){
- return fetch(u,{method:'POST',cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
+ // Goes through the same single-socket rule as everything else: a preset POST
+ // racing the poll is what used to make one of them hang.
+ INFLIGHT=true;
+ var opt=abortAfter(4000);
+ opt.method='POST';opt.cache='no-store';
+ return fetch(u,opt).then(function(r){INFLIGHT=false;return r.json();}).then(function(s){
   apply(s);if(refresh)fillInputs();return s;
- });
+ },function(){INFLIGHT=false;flashMsg('request failed');});
 }
 $('host').textContent=location.host;
 function setAgc(){
@@ -898,12 +987,14 @@ $('rst').onclick=function(){
  }
 };
 function poll(){
- if(INFLIGHT||POLL_BUSY||WDRAG||TDRAG>=0||LAST)return;
+ if(busySocket()||editing()||LAST)return;
+ // A poll that lands just after a knob moved would overwrite what the user is
+ // setting with a value the board has not seen yet.
+ if(Date.now()-USER_TS<900)return;
  POLL_BUSY=true;
- fetch('/api/state',{cache:'no-store'})
-  .then(function(r){return r.json();})
-  .then(function(s){POLL_BUSY=false;if(!WDRAG&&TDRAG<0&&!LAST)apply(s);})
-  .catch(function(){POLL_BUSY=false;});
+ fetchState()
+  .then(function(s){POLL_BUSY=false;if(!editing()&&!LAST)apply(s);})
+  .catch(function(){POLL_BUSY=false;flashMsg('sync lost - reload the page');});
 }
 fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
 setInterval(poll,600);
