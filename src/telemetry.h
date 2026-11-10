@@ -34,11 +34,12 @@
 //   45  2*4  per (strip, layer): beat confidence, %
 //   53  2*4  per (strip, layer): active effects, count
 //   61   30  spectrum bands, %
-// = 91 bytes
+//   91    1  worst render-loop frame gap in the last second, ms
+// = 92 bytes
 class TelemetryStream {
 public:
   static constexpr uint8_t kFrameVersion = 1;
-  static constexpr size_t kFrameSize = 91;
+  static constexpr size_t kFrameSize = 92;
   static constexpr uint16_t kDefaultPort = 81;
   static constexpr uint8_t kMaxClients = 3;
   // 40 ms: faster than the ~31 Hz analysis rate would only repeat numbers, and
@@ -85,6 +86,7 @@ private:
   uint8_t layerConf_[kStripCount][kMaxLayersPerStrip] = {};
   uint8_t layerBlobs_[kStripCount][kMaxLayersPerStrip] = {};
   uint8_t spec_[kDisplayBands] = {};
+  uint8_t loopMaxMs_ = 0;
 
   int clientsFd_[kMaxClients] = {};
   volatile uint8_t clients_ = 0;

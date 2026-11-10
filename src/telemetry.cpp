@@ -183,6 +183,7 @@ void TelemetryStream::publish(const Telemetry &tele, const Settings &settings) {
   for (size_t b = 0; b < kDisplayBands; b++) {
     spec_[b] = tele.spec[b];
   }
+  loopMaxMs_ = tele.loopMaxMs;
   portEXIT_CRITICAL(&mux_);
 }
 
@@ -236,6 +237,7 @@ size_t TelemetryStream::buildFrame(uint8_t *out, size_t cap) const {
   for (size_t b = 0; b < kDisplayBands; b++) {
     out[n++] = spec_[b];
   }
+  out[n++] = loopMaxMs_;
   portEXIT_CRITICAL(mux);
   return n;
 }

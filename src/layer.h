@@ -57,6 +57,8 @@ public:
   void reset();
 
   size_t activeCount() const;
+  // Metronome beats produced so far (diagnostic).
+  uint16_t lfoBeats() const { return lfoBeats_; }
 
   // Brightest value this layer contributed to the last render, 0..1.
   float peak() const { return peak_; }
@@ -75,7 +77,14 @@ private:
   Blob blobs_[kMaxBlobs];
   float flashAmp_ = 0.0f;
   float sparkleAmp_ = 0.0f;
-  float lfoPhase_ = 0.0f;        // 0..1 through the metronome period
+  // The metronome is paced by absolute time, not by accumulated dt: a stalled
+  // render loop must never slow it down, freeze it, or make it fire a burst of
+  // catch-up pulses. lfoNextMs_ is when the next beat is due.
+  bool lfoArmed_ = false;
+  uint32_t lfoNextMs_ = 0;
+  // Beats the metronome has produced. Diagnostic only: a steady clock here with
+  // a stuttering strip means the fault is downstream of the trigger.
+  uint16_t lfoBeats_ = 0;
   uint32_t flashReleaseAtMs_ = 0; // when the flash starts falling
   float peak_ = 0.0f;
   uint32_t sparkleSeed_ = 1;

@@ -71,6 +71,9 @@ uint8_t agcPeakPctPub = 0; // the peak the last decision was based on
 // (~3 ms per 100 LEDs) sets the real floor.
 constexpr uint32_t kRenderPeriodUs = 10000; // ~100 fps
 bool settingsDirty = false;
+uint32_t loopMaxMs = 0;
+uint32_t loopStatsMs = 0;
+uint8_t teleLoopMaxMs = 0;
 uint32_t settingsChangedAt = 0;
 
 void noteSettingsChanged() {
@@ -424,8 +427,14 @@ void loop() {
   runAgc(millis());
 
   // Animation runs on the render clock, not the audio clock.
-  uint32_t dtMs = lastFrameUs == 0 ? 10 : (nowUs - lastFrameUs) / 1000;
+  const uint32_t rawDtMs = lastFrameUs == 0 ? 10 : (nowUs - lastFrameUs) / 1000;
   lastFrameUs = nowUs;
+  // Track the worst frame gap *before* clamping: a stall is what the phone needs
+  // to see, and clamping is exactly what hides it from the animation.
+  if (rawDtMs > loopMaxMs) {
+    loopMaxMs = rawDtMs;
+  }
+  uint32_t dtMs = rawDtMs;
   if (dtMs == 0) {
     dtMs = 1;
   } else if (dtMs > 250) {
@@ -433,6 +442,11 @@ void loop() {
   }
   const float dtSec = (float)dtMs * 0.001f;
   const uint32_t nowMs = millis();
+  if ((uint32_t)(nowMs - loopStatsMs) >= 1000) {
+    loopStatsMs = nowMs;
+    teleLoopMaxMs = (uint8_t)(loopMaxMs > 255 ? 255 : loopMaxMs);
+    loopMaxMs = 0;
+  }
 
   Telemetry tele;
   tele.levelPct = (uint8_t)(snap.level * 100.0f + 0.5f);
@@ -441,6 +455,7 @@ void loop() {
   tele.agcAction = agcActionPub;
   tele.agcPeakPct = agcPeakPctPub;
   tele.unsaved = web.unsaved() ? 1 : 0;
+  tele.loopMaxMs = teleLoopMaxMs;
   for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
     tele.spec[b] = (uint8_t)(snap.bands[b] * 100.0f + 0.5f);
   }

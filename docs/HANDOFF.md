@@ -348,6 +348,45 @@ the two can never disagree.
 `apply()`, not from the handler that happened to cause the change. Handlers are not
 the only source of state.
 
+### Never accumulate time from a clamped `dt` (2026-11-10)
+The LFO did `phase += dtMs / periodMs`. `loop()` clamps `dtMs` to 250 ms so a stall
+cannot teleport every blob across the strip — but that clamp silently *discards* the
+excess, so any frame longer than 250 ms made the metronome permanently late. A phone
+that scrolls the page for a second costs a whole beat, every time, and the LFO read as
+"pulses for a while, stops, starts again".
+
+Any periodic process now paces off **absolute time**: keep `nextMs`, spawn one beat per
+frame, and advance the schedule by whole periods (`while (next <= now) next += period`).
+A late frame is then late, never lost, and no burst of catch-up beats appears. If the
+loop is more than four periods late, resynchronise instead of firing a queue of beats.
+
+**Rule:** `dt` is for *animation* (where clamping is a feature) and never for
+*timekeeping* (where clamping is data loss). If a thing must happen N times per second
+it must compare against `millis()`, not sum deltas.
+
+### Measure the stall before you clamp it (2026-11-10)
+`loopMaxMs` is taken from the **raw** frame time, before the 250 ms clamp, and pushed in
+the last byte of the telemetry frame. Read after the clamp it would always report
+≤ 250 ms and hide exactly the event it exists to find. Shown in the header only above
+40 ms, so a stuttering strip has a visible cause instead of a mystery.
+
+### One control, one fact (2026-11-10)
+The old layer tabs coloured the button with the layer's colour, filled it when
+selected and dimmed it when the layer was off — three variables in one visual. Users
+could not tell a dimmed *selected* layer from a saturated *unselected* one, and the
+colour vanished whenever the layer was off.
+
+The layer list now separates the facts:
+| Question | Signal |
+|----------|--------|
+| which layer? | a colour dot, always saturated |
+| is it on? | the words `on` / `off` and a switch |
+| am I editing it? | `▸` plus an edge highlight |
+
+**Rule:** if a control must communicate n independent booleans, it needs n independent
+signals. Colour that changes meaning (identity vs. state) is the most common form of
+this bug in this UI.
+
 ### Layer creation and deletion are explicit board actions (2026-11-08)
 `layerCount` arithmetic from the page could not say *which* slot to remove, so
 "Remove" always truncated the last layer while the user was looking at another one.

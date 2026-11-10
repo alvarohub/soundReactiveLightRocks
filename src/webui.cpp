@@ -21,6 +21,7 @@ const char kPage[] PROGMEM = R"PAGE(<!doctype html>
 body{margin:0;padding:14px 16.7vw 28px 12px;max-width:640px;background:#0f1115;color:#e6edf3;font:16px/1.45 system-ui,-apple-system,sans-serif;border-right:1px dashed #21262e}
 h1{margin:0 0 10px;font-size:1.15rem;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 h1 span{font-size:.72rem;color:#8b949e;font-weight:400;display:flex;gap:8px;align-items:center;justify-content:flex-end}
+.loopms{display:none;font-style:normal;font-size:.62rem;font-weight:700;color:#ffd580;background:#3a2f12;border-radius:8px;padding:2px 7px}
 .linkdot{font-style:normal;font-size:.62rem;font-weight:700;color:#0f1115;background:#484f58;border-radius:8px;padding:2px 7px;letter-spacing:.03em}
 .padopen{width:100%;padding:12px 14px;margin-bottom:10px;border-radius:12px;border:2px solid #58a6ff;background:linear-gradient(135deg,#16233a,#171b21);color:#f0f6fc;font-size:1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:pointer;touch-action:manipulation}
 .padopen small{font-weight:500;font-size:.76rem;color:#8b949e}
@@ -88,6 +89,26 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .btn{padding:11px;border-radius:9px;border:1px solid #2b323c;background:#21262e;color:#e6edf3;font-size:.95rem}
 .btn.alt{background:#16261a;border-color:#2ea043}
 .btn.warn{background:#2a1a1a;border-color:#6b2b2b;color:#ff7b72}
+/* Layer list. A tab row was doing two jobs at once - "which layer am I editing"
+   and "which layers are on" - and the only way to read the second was to select
+   each tab in turn. Now they are separate controls on one row: the switch is
+   power, the highlighted row is what the cards below are editing, and the colour
+   chip is the beam's colour. */
+.layerlist{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.lrow{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:10px;border:2px solid #262c36;background:#14181f;color:#c9d1d9;font-size:.86rem;touch-action:manipulation}
+.lrow .dot{width:14px;height:14px;border-radius:50%;flex:none;box-shadow:0 0 8px -2px currentColor;border:1px solid rgba(0,0,0,.5)}
+.lrow .nm{font-weight:700;flex:none;min-width:52px}
+.lrow .bd{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.74rem;color:#8b949e;font-variant-numeric:tabular-nums}
+.lrow .st{flex:none;font-size:.62rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#3fb950}
+.lrow.off .nm,.lrow.off .bd{color:#565d68}
+.lrow.off .st{color:#6b7280}
+.lrow.off .dot{opacity:.35;box-shadow:none}
+/* Selection is an edge + arrow, never a colour fill: the dot keeps saying what
+   colour the layer is, whatever row you happen to be editing. */
+.lrow.sel{border-color:#58a6ff;background:#182231}
+.lrow.sel:before{content:"\25B8";color:#58a6ff;margin-left:-4px;font-weight:700}
+.lrow.sel .nm{color:#f0f6fc}
+.lrow .pw{flex:none}
 /* Preset slots: one chip per slot showing what it actually holds (the colours
    of its layers), so "is this slot used, and with what" needs no guessing. */
 .slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
@@ -138,7 +159,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 </style>
 </head>
 <body>
-<h1>Light Rocks <span><i id=link class=linkdot>idle</i> <b id=host></span></h1>
+<h1>Light Rocks <span><i id=loopms class=loopms></i> <i id=link class=linkdot>idle</i> <b id=host></span></h1>
 <button type=button class=padopen id=openpads><span>Full-Screen Effect Pads</span><small>one group per layer &rarr;</small></button>
 <div id=padscreen>
  <div class=padtop>
@@ -183,7 +204,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 </div>
 <div class=hint id=calhint>calibrate lights only the end LED while you adjust the count</div>
 <div class="row" style="margin-top:12px"><span>Light layers inside</span><b id=lcv>-</b></div>
-<div class=seg id=layertabs></div>
+<div class=layerlist id=layerlist></div>
 <div class=rline style="margin-top:8px">
 <button type=button id=addlayer class=tbtn>+ Add layer</button>
 <button type=button id=remlayer class=tbtn>Remove</button>
@@ -517,44 +538,72 @@ function buildSelectors(n){
   };})(j);
  }
 }
-var TAB_N=-1;
-function buildLayerTabs(){
- var p='',n=layerCount();
- // A single layer has nothing to choose between, so no pointless tab row.
- // The count says so in words, otherwise "1 of 4" with no tabs reads as four
- // layers hiding somewhere.
- if(n!==TAB_N){
-  TAB_N=n;
-  for(var i=0;i<n;i++)p+='<button id=lt'+i+'>Layer '+(i+1)+'</button>';
-  var box=$('layertabs');
-  box.innerHTML=p;
-  box.style.display=n>1?'':'none';
-  for(var j=0;j<n;j++){
-   (function(k){$('lt'+k).onclick=function(){flush();L=k;fillInputs();live();};})(j);
-  }
+var LIST_SIG='';
+/* The layer list.
+   One row per live layer, carrying three separate facts that used to be crammed
+   into one tab:
+     - the dot is the beam's COLOUR (always visible, whether or not you are on it)
+     - the switch is POWER (toggles that layer alone)
+     - the row highlight and the arrow mean "this is what the cards below edit"
+   Tapping a row selects it; tapping the switch toggles it and does not select. */
+function listSig(){
+ var p=phys();
+ if(!p||!p.layers)return '';
+ var t='sel'+L+'|n'+p.layerCount;
+ for(var i=0;i<p.layerCount;i++){
+  var ly=p.layers[i];
+  t+='|'+ly.color+(ly.enabled?'1':'0')+ly.centerHz+'/'+ly.widthHz+(ly.triggers||0);
  }
- if($('lcv'))$('lcv').textContent=n>1?(n+' of 4'):'1 of 4 \u00b7 single beam';
- paintLayerTabs();
+ return t;
 }
-
-/* Each tab carries its layer's colour, so "the green beam" is one tap away
-   without reading the titles. The selected tab is filled with that colour; the
-   text flips to dark on light colours so it stays readable. */
-function paintLayerTabs(){
+function buildLayerList(){
  var p=phys();
  if(!p||!p.layers)return;
- for(var i=0;i<TAB_N;i++){
-  var b=$('lt'+i);
-  if(!b)continue;
-  var lay=p.layers[i],col='#'+(lay&&lay.color?lay.color:'808080');
-  var r=parseInt(col.substr(1,2),16)||0,g=parseInt(col.substr(3,2),16)||0,bl=parseInt(col.substr(5,2),16)||0;
-  var luma=0.299*r+0.587*g+0.114*bl;
-  b.style.borderColor=col;
-  b.style.background=(i===L)?col:'#161a20';
-  b.style.color=(i===L)?(luma>140?'#0b0e13':'#f0f6fc'):col;
-  b.style.opacity=(lay&&!lay.enabled)?'.45':'1';
+ var n=Math.max(1,p.layerCount);
+ var sig=listSig();
+ if(sig!==LIST_SIG){
+  LIST_SIG=sig;
+  var html='';
+  for(var i=0;i<n;i++){
+   var ly=p.layers[i],on=!!ly.enabled;
+   var band=ly.centerHz+(ly.widthHz?(' \u00b1'+Math.round(ly.widthHz/2)):'');
+   html+='<div class="lrow'+(i===L?' sel':'')+(on?'':' off')+'" id=lr'+i+' data-i='+i+'>'
+    +'<i class=d进而></i>'
+    +'<b class=nm>Layer '+(i+1)+'</b>'
+    +'<span class=bd>'+band+' Hz</span>'
+    +'<span class=st>'+(on?'on':'off')+'</span>'
+    +'<label class="sw pw"><input type=checkbox id=lp'+i+(on?' checked':'')+'><i></i></label>'
+    +'</div>';
+  }
+  $('layerlist').innerHTML=html.replace(/d进而/g,'dot');
+  for(var j=0;j<n;j++){(function(k){
+   var row=$('lr'+k);
+   row.style.setProperty('--c','#'+(p.layers[k].color||'808080'));
+   row.querySelector('.dot').style.background='#'+(p.layers[k].color||'808080');
+   row.querySelector('.dot').style.color='#'+(p.layers[k].color||'808080');
+   row.onclick=function(ev){
+    if(ev&&ev.target&&ev.target.closest&&ev.target.closest('.pw'))return; // switch
+    flush();L=k;fillInputs();live();
+   };
+   $('lp'+k).onchange=function(ev){
+    ev.stopPropagation();
+    var onv=this.checked?1:0;
+    var lay=phys().layers[k];
+    if(lay)lay.enabled=onv;      // optimistic, reconcile() will confirm
+    sendLayerAt(k,'enabled',onv);
+    flush();refreshTitle();
+    LIST_SIG='';                 // repaint the row's on/off state
+    buildLayerList();
+   };
+  })(j);}
  }
+ if($('lcv'))$('lcv').textContent=n>1?(n+' of 4'):'1 of 4 \u00b7 single beam';
 }
+
+/* Writes that belong to a layer which is not the one being edited (the row
+   switch), so they use that layer's index explicitly. */
+function sendLayerAt(l,k,v){want(S,l,k,v);}
+
 function buildPads(){
  // One column per physical strip, side by side. Only layers that have actually
  // been added (l < layerCount) are drawn, so an untouched strip shows a single
@@ -840,9 +889,9 @@ function refreshTitle(){
  $('ptitle').innerHTML=nameOf(S)+' &middot; Layer '+(L+1)+'<small>'
   +(c.enabled?'on':'off')+' &middot; '+trig+' &middot; '+effName(EFF)
   +' &middot; '+c.intensityPct+'% weight &middot; '+$('speed').value+' LED/s</small>';
- // lcv is written by buildLayerTabs(), so the count and the tabs never disagree.
+ // lcv is written by buildLayerList(), so the count and the list never disagree.
  $('tabhint').textContent=p.ledCount+' LEDs · '+p.brightnessPct+'% output';
- paintLayerTabs();}
+ buildLayerList();}
 
 function labels(){
  [TRIGSPEC,ANIMSPEC].forEach(function(list){
@@ -929,13 +978,7 @@ function setSolo(){
  b.className='tbtn '+(SOLO===L?'solo':'');
  b.textContent=SOLO===L?'Solo ON':'Solo';
 }
-function setLayerSel(){
- var n=layerCount();
- for(var i=0;i<4;i++){
-  var b=$('lt'+i);
-  if(b)b.className=(i===L?'sel ':'')+(i<n?'':'');
- }
-}
+function setLayerSel(){ buildLayerList(); }
 
 function fillInputs(){
  if(!ST||!BUILT)return;
@@ -968,7 +1011,7 @@ function fillInputs(){
  if(lay('retrigger'))RETRIG=c.retrigger!==undefined?(c.retrigger?1:0):1;
  if(phy('calib'))CALIB=p.calib?1:0;
  if(phy('solo'))SOLO=(p.solo===undefined)?-1:p.solo;
- buildLayerTabs();
+ buildLayerList();
  setLayerSel();setTriggers();setEff();setDir();setLoop();setRetrig();setCalib();setSolo();
  if(lay('color'))setColorHex(colOf(c));
  labels();
@@ -1001,6 +1044,7 @@ function parseFrame(b){
  t.conf=[];for(var i=0;i<8;i++)t.conf.push(b[o++]);
  t.blobs=[];for(var i=0;i<8;i++)t.blobs.push(b[o++]);
  t.spec=[];for(var i=0;i<30;i++)t.spec.push(b[o++]);
+ t.loopMax=b.length>o?b[o]:0;
  t.agc=!!(t.flags&1); t.unsaved=!!(t.flags&2);
  return t;
 }
@@ -1042,6 +1086,18 @@ function paintTelemetry(){
  drawDbScale();
  explainAgc();
  drawBandMap();
+ // A stalling render loop is the explanation for stuttering LEDs and for a
+ // metronome that seems to skip; show it only when it is actually bad.
+ if($('loopms')){
+  if(t.loopMax>40){
+   $('loopms').style.display='inline-block';
+   $('loopms').textContent='loop '+t.loopMax+' ms';
+   $('loopms').style.background=t.loopMax>90?'#5d1a1a':'#3a2f12';
+   $('loopms').style.color=t.loopMax>90?'#ffb3ad':'#ffd580';
+  }else{
+   $('loopms').style.display='none';
+  }
+ }
  if(!MSGTMR)setText($('pmsg'),t.unsaved?'auto-saving\u2026':'auto-saved');
  if($('agcbtn')&&!inFlight(0,null,'agc')){AGC=t.agc?1:0;setAgc();}
  $('gainDbv').textContent=(t.gain>0?'+':'')+t.gain+' dB';

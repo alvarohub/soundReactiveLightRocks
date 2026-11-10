@@ -442,15 +442,25 @@ it when the slider is released.
 * The content takes **5/6 of the viewport width**, leaving the right **1/6**
   (`16.7vw`) as an empty thumb-scroll gutter so scrolling never moves sliders or
   taps buttons by accident.
-* **Strip 1 / Strip 2** tabs select the physical container; **Layer 1..4** tabs
-  inside it select which layer the cards below edit.
+* **Strip 1 / Strip 2** tabs select the physical container; a **layer list**
+  inside it shows one row per layer and selects which layer the cards below edit.
 * **+ Add layer** duplicates the layer being edited in another colour at 60 %
   weight and selects it, so a second beam is visible immediately. **Remove**
   deletes the layer being edited and shifts the rest up; **Solo** previews one
   layer alone.
-* With a single layer the **tab row is hidden** and the count reads
-  `1 of 4 · single beam`, so an empty row can never be mistaken for hidden
-  layers. The layer cards below keep working normally.
+* With a single layer the count reads `1 of 4 · single beam`, so the row can
+  never be mistaken for hidden layers. The layer cards below keep working
+  normally.
+* The **layer list** answers three questions with three separate signals, because
+  one control cannot carry them all without being ambiguous:
+  | Question | Signal |
+  |----------|--------|
+  | *which* layer is this? | a colour dot, always filled with the layer's colour |
+  | is it *on*? | a textual `on` / `off` label and its own power switch |
+  | am I *editing* it? | a `▸` marker and an edge highlight |
+  The dot never dims and the row never fills with colour, so power and selection can
+  never be confused for one another. Each row also states its band
+  (`150 ±125 Hz`), which is the fastest way to tell two beams apart.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
 * Everything **physical** lives in the strip card, under the Strip 1 / Strip 2
@@ -459,10 +469,8 @@ it when the slider is released.
 * The per-layer pair `Layer power` + `Layer intensity` closes the strip card, right
   under the layer title, so switching a layer off and setting its weight are the
   same gesture. Colour and softness live in the **Display** card below.
-* **Layer tabs are painted with the layer's colour** (filled when selected, dimmed
-  when the layer is powered off), so a beam is recognisable without reading titles.
 * **Two channels, on purpose.** Live numbers (levels, dBFS, peak, per-layer
-  pulses, tempi, the spectrum) are pushed as one **91-byte binary frame at ~25 Hz
+  pulses, tempi, the spectrum) are pushed as one **92-byte binary frame at ~25 Hz
   over a WebSocket** on its own port; settings travel as JSON and are fetched
   rarely. Mixing them was what made the UI trail reality by about a second.
 * The WebSocket lives at `ws://<board>:81/ws`. If it cannot be established the page
@@ -476,8 +484,9 @@ it when the slider is released.
   board's state agrees. Controls with a write in flight are never overwritten by a
   read.
 * The page pauses both channels when the tab is hidden and resumes on return.
-* **Layer tabs are painted with the layer's colour** (filled when selected, dimmed
-  when the layer is powered off), so a beam is recognisable without reading titles.
+* The frame ends with the **worst render-loop gap of the last second**. The header
+  shows `loop 120 ms` (amber above 40 ms, red above 90 ms) and nothing at all when
+  the loop is healthy, so a stuttering animation is never left unexplained.
 * The page keeps **one request in flight at a time** — the board serves one socket —
   and every request has a 2.5 s deadline. Each write is also remembered as a
   *desire*: a state read clears it when the board agrees and **re-queues** it when it

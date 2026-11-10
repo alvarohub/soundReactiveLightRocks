@@ -306,6 +306,9 @@ struct Telemetry {
   int8_t agcAction = 0;
   uint8_t agcPeakPct = 0;
   uint8_t unsaved = 0; // settings differ from what is in flash
+  // Worst render-loop frame gap over the last second. A high value explains
+  // stuttering LEDs and a "slow" metronome better than any amount of guessing.
+  uint8_t loopMaxMs = 0;
   PhysicalTelemetry strip[kStripCount];
 };
 

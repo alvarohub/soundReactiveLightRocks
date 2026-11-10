@@ -1339,5 +1339,45 @@ Wi-Fi + Bluetooth coexistence nightmare from the older M5StickC Plus2.
        DJ/speaker mixer) feeding an analog/I2S input on the microcontroller, or
        switching the M5StickS3's ES8311 codec / ADC to line-in.
 
+---
 
+## 2026-11-10 — The metronome that lost time, and a layer list that tells the truth
 
+### Symptom 1 — the LFO pulses, then stops, then starts again
+
+Reported with the LFO as the only trigger: the LEDs pulse for some cycles, stop, then
+resume. Not a detector problem — the LFO never touched the audio path at all.
+
+`loop()` clamps `dtMs` to 250 ms so that a long frame (a Wi-Fi retransmit, a settings
+write, a GC pause in the UI) cannot make every blob jump halfway round the strip. The
+LFO, however, integrated that same clamped `dtMs`
+(`lfoPhase += dtMs / lfoPeriodMs`). Every frame longer than 250 ms therefore threw
+away the excess **permanently**: the metronome did not stutter, it ran slower than the
+number on screen, and the gap grew without bound.
+
+Worse, the failures were self-reinforcing. Blocking writes and the WebSocket flush made
+one frame per few seconds long; each long frame stole time from the LFO, and the longer
+the phase lag the longer the LED work ran, which stole more.
+
+Fixed by pacing off absolute time: `lfoArmed_` / `lfoNextMs_` / `lfoBeats()`. One beat
+per frame, schedule advanced by whole periods, resync past four missed periods so a
+stall cannot queue a burst. Host tests in `/tmp/lrh` drove 20-second runs with injected
+stalls of 300 ms and 1500 ms: 9 beats in 20 s at a 2000 ms period in every case, worst
+gap 2300 ms, and the phase resumes correctly afterwards.
+
+### Symptom 2 — "very confusing which are off, which are selected, and the colour"
+
+The tab row was doing three jobs at once: identity (fill colour), power (dim when off)
+and selection (filled border). Any two of those are indistinguishable at a glance.
+
+Replaced with a **layer list**: one row per layer, a saturated colour dot that never
+changes, the layer's band (`150 ±125 Hz`), the word `on` / `off`, its own power switch,
+and selection shown only by `▸` and an edge highlight. Toggling a switch no longer
+changes what you are editing, and tapping a row no longer changes its power — verified
+in the browser against the mock with 4 layers, 2 of them off.
+
+### Also
+* `Telemetry::loopMaxMs` — the worst raw render gap of the last second, published in the
+  frame (now 92 bytes) and shown in the header only above 40 ms (amber) / 90 ms (red).
+  Taken *before* the clamp, because the clamp is precisely what hides stalls.
+* Firmware **v2.1**.

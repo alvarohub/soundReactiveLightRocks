@@ -51,7 +51,9 @@ void LayerEngine::reset() {
   }
   flashAmp_ = 0.0f;
   sparkleAmp_ = 0.0f;
-  lfoPhase_ = 0.0f;
+  lfoArmed_ = false;
+  lfoNextMs_ = 0;
+  lfoBeats_ = 0;
   flashReleaseAtMs_ = 0;
   peak_ = 0.0f;
   held_ = false;
@@ -191,18 +193,34 @@ void LayerEngine::update(float bandLevel, bool onBeat, const MotionState &motion
 
   sparkleSeed_ = sparkleSeed_ * 1664525u + 1013904223u + nowMs;
 
-  // The LFO is a free-running metronome: it fires on its own, independent of
-  // the microphone. Firing it into a Flash with a long attack and release is
-  // exactly the old "glow"; with a short attack and release it is a strobe.
+  // The LFO is a free-running metronome: it fires on its own, independent of the
+  // microphone. Firing it into a Flash with a long attack and release is exactly
+  // the old "glow"; with a short attack and release it is a strobe.
+  //
+  // Paced off millis(), not off accumulated dt. Accumulating meant the tempo rode
+  // the render clock: any stall (a blocking HTTP request, a slow LED transfer)
+  // slowed the metronome, and a long enough stall made it look like it had
+  // stopped and then started again. Absolute time cannot drift.
   bool lfoFired = false;
+  const uint32_t lfoPeriod = s.lfoPeriodMs > 0 ? s.lfoPeriodMs : 2000u;
   if (s.triggers & kTrigLfo) {
-    lfoPhase_ += dtSec * 1000.0f / (float)s.lfoPeriodMs;
-    if (lfoPhase_ >= 1.0f) {
-      lfoPhase_ -= floorf(lfoPhase_);
+    if (!lfoArmed_) {
+      lfoArmed_ = true;
+      lfoNextMs_ = nowMs + lfoPeriod; // first beat one period after arming
+    } else if ((int32_t)(nowMs - lfoNextMs_) >= 0) {
+      // One beat per frame however late this frame is, and the schedule advances
+      // by whole periods so the phase stays on the real grid: no catch-up burst.
+      const uint32_t lateBy = (uint32_t)(nowMs - lfoNextMs_);
+      if (lateBy > lfoPeriod * 4u) {
+        lfoNextMs_ = nowMs + lfoPeriod; // was suspended: resume cleanly
+      } else {
+        lfoNextMs_ += lfoPeriod * (1u + lateBy / lfoPeriod);
+      }
       lfoFired = true;
+      lfoBeats_ = (uint16_t)(lfoBeats_ + 1);
     }
   } else {
-    lfoPhase_ = 0.0f;
+    lfoArmed_ = false;
   }
 
   // Safety timeout: if the browser disconnects while holding a pad, release
