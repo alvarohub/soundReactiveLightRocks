@@ -160,3 +160,64 @@ stick to pick which layer the buttons act on.
 
 **Idea:** record a short motion gesture (accel/gyro trace) and match it later —
 "flick left = next preset". Cheap DTW on 20 samples.
+
+## Real-time telemetry: why the phone feels slow, and what would fix it
+
+*Recorded 2026-11-10. The lag is not the "IoT" part; it is the transport design.*
+
+### Where the delay actually comes from
+
+| stage | cost | note |
+|---|---|---|
+| audio block | 32 ms | 512 samples at 16 kHz, DMA into a ring buffer |
+| analysis + detectors | ~2 ms | runs once per block, in its own task |
+| render + LED transfer | 10-30 ms | ~100 fps cap, real limit is the RMT transfer |
+| **`/api/state` poll** | **600 ms** | the page asks; nothing is pushed |
+| JSON build + send | 3.9 KB `snprintf` + TCP write | four appends per layer, 8 layers |
+
+So the *board* knows the level 30 times a second and the *phone* learns about it
+twice a second - twenty times slower than the data. Add the round trip over
+Wi-Fi, the single-socket `WebServer` (one request at a time, which is why writes
+and polls had to be serialised at all), and a 4 KB JSON payload rebuilt from
+scratch on every request, and the UI is always a second behind reality.
+
+The rule of thumb: **polling a full state document at 600 ms is fine for
+settings and useless for telemetry.** Settings change when a human touches
+something; levels change 30 times a second. They want different transports.
+
+### What to do instead, in order of cost/benefit
+
+1. **WebSocket push of a small binary telemetry frame (the real answer).**
+   `esp_http_server` (which `WebServer` wraps) has `CONFIG_HTTPD_WS_SUPPORT` and
+   `httpd_ws_send_frame`; `ESPAsyncWebServer` has a simpler API. Push at 20-30 Hz
+   a frame of ~70 bytes:
+   `seq(u16) levelPct(u8) dbfs(i8) peakHz(u16) bpm(u16) pulse(u8) agcPeak(u8)
+   agcAction(i8) stripBright[2](u8) layerLevel[8](u8) bands[30](u8)`.
+   The page renders on `requestAnimationFrame` from the newest frame and keeps
+   HTTP only for *writes*. This is what ESPHome, WLED and every audio visualiser
+   dashboard does. Latency becomes one audio block (~32 ms) instead of 600 ms.
+2. **Server-Sent Events** if avoiding a WS library: one long-lived
+   `text/event-stream` response, same push model, text only (send the same fields
+   as base64 or as a short CSV - still ~150 bytes).
+3. **UDP broadcast** of that same packet (no connection state, any number of
+   phones at once, no reconnection logic) with HTTP kept for settings. Simplest
+   possible server code; lossy, which is fine for a level meter.
+4. **Cheap wins inside the current design**: cache the JSON and rebuild only when
+   the settings change (telemetry fields patched in place), poll at 250 ms, and
+   split settings from telemetry into two endpoints so a poll does not carry 3 KB
+   of parameters the user is not touching. Worth doing even if (1) is planned.
+
+### Not worth it
+
+* A full FFT stream to the phone. The interesting information is 30 band levels
+  (30 bytes) - the phone can draw them. Streaming raw bins wastes the link and
+  buys nothing.
+* Sending faster than the analysis rate (31 Hz). Above ~30 Hz the numbers repeat.
+
+### Note on the phone side
+
+Once telemetry is pushed, the page must stop re-rendering its whole DOM per frame:
+keep `apply()` for settings (rare) and a separate `paintTelemetry()` for meters,
+canvas and level bars (frequent, no allocations, no text reflow). That split is
+also what keeps a live UI from stealing the touch target under a finger - the same
+bug class that made the layer tabs and preset chips swallow taps.

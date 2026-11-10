@@ -1173,6 +1173,41 @@ detached the node under the pointer and swallowed the tap (the same trap as the
 layer tabs - hence the signature guard); and `post()` ignored the HTTP status, so
 failures were reported as successes.
 
+## 2026-11-10 (later) — Band map, and why the phone lags
+
+### Band map
+
+A new card shows, for the selected strip, one stacked row per layer on a
+log-frequency axis - the same picture the TFT draws, but with the numbers:
+
+```
+65     125     250     500      1k       2k        4k
+L1 ▐█████████▌                                 150 Hz ±125
+L2         ▐████████▌                          400 Hz ±150
+L3                       ▐███████████▌        2000 Hz ±750
+L4                                    ▐███████ 5000 Hz ±1500
+```
+
+Each row shows the band edges, the centre line, the layer colour, and a fill for
+how much of that band is present *right now*; behind everything is a faint
+silhouette of the 30-band spectrum from `/api/state` (`spec`, 30 bytes). That is
+enough to see whether two layers are listening to the same part of the music.
+
+The canvas backing store is sized from its CSS box times `devicePixelRatio` on
+every draw, so the axis is not stretched on a phone (715x375 backing for a
+286x150 box at dpr 2.5).
+
+### The latency question
+
+The lag is not the radio. It is: 600 ms polling of a 3.9 KB JSON document, rebuilt
+from scratch per request, over a single-socket HTTP server, while the board already
+has the answer 31 times a second. Settings and telemetry are different problems
+and want different transports. The proper fix is a WebSocket pushing a ~70-byte
+binary telemetry frame at 20-30 Hz (frame layout and the SSE/UDP alternatives are
+in `docs/IDEAS.md`). Until then, the cheap wins inside the current design are:
+cache the JSON and rebuild only on change, and split settings from telemetry so a
+poll does not carry 3 KB of parameters nobody is touching.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

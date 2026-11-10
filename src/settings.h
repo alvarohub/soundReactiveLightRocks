@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "audio_fft.h"
 #include "config.h"
 
 // ---------------------------------------------------------------------------
@@ -295,6 +296,9 @@ struct PhysicalTelemetry {
 
 struct Telemetry {
   uint8_t levelPct = 0; // broadband input level
+  // The 30 log-spaced display bands, 0..100. Sent so the phone can draw where the
+  // layers sit on the spectrum; it is one byte per band, not an FFT stream.
+  uint8_t spec[SpectrumAnalyzer::kBands] = {};
   int16_t dbfs = -99;
   uint16_t peakHz = 0;
   // What the automatic gain control is doing, so the phone can explain it:

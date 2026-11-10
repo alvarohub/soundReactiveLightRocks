@@ -202,6 +202,15 @@ Rows repaint incrementally like the bars: geometry/colour changes redraw the row
 a level change repaints only the delta (and repaints the track, not black, when
 the level falls), and the trigger dot only when it flips.
 
+### Telemetry is polled at 600 ms on purpose, for now (2026-11-10)
+The board computes levels 31 times a second; the phone asks for a 3.9 KB state
+document every 600 ms. That is fine for *settings* and hopeless for *telemetry* -
+it is the reason the UI always trails reality by about a second, and the reason the
+transport had to serialise writes against polls at all. The fix is a WebSocket (or
+SSE, or UDP) push of a ~70-byte binary telemetry frame at 20-30 Hz with HTTP kept
+for writes; see `docs/IDEAS.md` for the frame layout and the ranking. Do that
+before optimising anything else in the UI.
+
 ### Presets: slots you can read, destructive actions that ask twice (2026-11-10)
 Six big `Save n` / `Load n` buttons were unreadable: nothing said whether a slot
 held anything, a click on Save gave no confirmation, and an empty slot's Load looked

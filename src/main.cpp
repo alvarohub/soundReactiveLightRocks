@@ -428,6 +428,9 @@ void loop() {
   tele.peakHz = (uint16_t)lroundf(snap.peakHz);
   tele.agcAction = agcActionPub;
   tele.agcPeakPct = agcPeakPctPub;
+  for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
+    tele.spec[b] = (uint8_t)(snap.bands[b] * 100.0f + 0.5f);
+  }
 
   for (size_t i = 0; i < kStripCount; i++) {
     renderStrip(i, nowMs, dtSec, tele);

@@ -474,6 +474,11 @@ it when the slider is released.
   in that layer's colour) plus two verbs, `Recall` and `Save here`. Recall is
   disabled on an empty slot; overwriting and recalling both require a second tap
   within 4 s. `/api/state` carries `presets:[{has,layers,cols}]`.
+* **Band map**: a log-frequency canvas per physical strip, one stacked row per
+  layer (the shape of the TFT), showing each layer's band edges, its centre line,
+  its colour and how much of that band is present right now, over a faint
+  silhouette of the 30-band spectrum. It answers "are these layers actually
+  listening to different parts of the music, or are they fighting?".
 * Live readouts (`lvl …%, … active`, the layer subtitle, the pad group headers) are
   single-line and truncated rather than wrapped, so growing numbers never reflow
   the page.

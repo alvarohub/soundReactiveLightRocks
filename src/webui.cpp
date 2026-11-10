@@ -28,6 +28,11 @@ h1 span{font-size:.72rem;color:#8b949e;font-weight:400}
 .row.first{margin-top:0}
 .row b{color:#e6edf3;font-variant-numeric:tabular-nums;font-weight:600}
 .hint{color:#8b949e;font-size:.76rem;margin:2px 0 4px}
+/* Band map: a log frequency axis with one stacked row per layer, the shape of
+   the TFT display, plus the live spectrum behind it as a faint silhouette. */
+#bandmap{width:100%;height:150px;display:block;border-radius:8px;background:#0f1319;touch-action:none}
+.bmlbl{position:relative;height:14px;margin-top:2px;font-size:.62rem;color:#6e7681;font-variant-numeric:tabular-nums}
+.bmlbl span{position:absolute;transform:translateX(-50%);white-space:nowrap}
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:26px;background:transparent;margin:0}
 input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:#2b323c}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-8px;border-radius:50%;background:#3fb950}
@@ -186,6 +191,12 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=ptitle id=ptitle style="margin:12px 0 8px"></div>
 <div class=row><span>Layer power</span><label class=sw><input type=checkbox id=pwr><i></i></label></div>
 <div id=ipanel></div>
+</div>
+
+<div class=card>
+<div class=ptitle id=bmtitle>Band map<small id=bmhint>where each layer of this strip listens</small></div>
+<canvas id=bandmap width=520 height=150></canvas>
+<div class=bmlbl id=bmlbl></div>
 </div>
 
 <div class=card id=trigbox></div>
@@ -1007,6 +1018,7 @@ function live(){
  // explanations of what is happening right now.
  drawDbScale();
  explainAgc();
+ drawBandMap();
  if($('agcbtn')&&!inFlight(0,null,'agc')){AGC=ST.agc?1:0;setAgc();}
  if(!MSGTMR)$('pmsg').textContent=ST.unsaved?'auto-saving…':'auto-saved';
  $('gainDbv').textContent=(ST.gainDb>0?'+':'')+ST.gainDb+' dB';
@@ -1133,6 +1145,106 @@ $('gainDb').addEventListener('input',function(){
  $('gainDbv').textContent=(v>0?'+':'')+v+' dB';
 });
 $('gainDb').addEventListener('change',function(){sendGlobal('gainDb',$('gainDb').value);flush();});
+/* ---- band map ----
+   One stacked row per layer of the selected strip, on a log frequency axis, the
+   same picture the TFT shows. The band, its centre and the live level of that
+   band are enough to see whether two layers are fighting for the same part of the
+   spectrum - which is the point. The faint silhouette behind is the live
+   spectrum, so the bands can be compared against the music. */
+var BM_LO=65, BM_HI=7600;
+function bmX(hz,w){
+ var lo=Math.log(BM_LO), hi=Math.log(BM_HI);
+ var t=(Math.log(Math.max(BM_LO,Math.min(BM_HI,hz)))-lo)/(hi-lo);
+ return Math.round(t*w);
+}
+function drawBandMap(){
+ var cv=$('bandmap');
+ if(!cv||!ST||!phys())return;
+ // Size the backing store to the CSS box so the axis is not stretched: the
+ // canvas element is 100 % wide on a phone, whatever that turns out to be.
+ var dpr=window.devicePixelRatio||1;
+ var cssW=Math.max(220,Math.round(cv.clientWidth||cv.width));
+ var cssH=Math.round(cv.clientHeight||cv.height);
+ var wantW=Math.round(cssW*dpr), wantH=Math.round(cssH*dpr);
+ if(cv.width!==wantW||cv.height!==wantH){cv.width=wantW;cv.height=wantH;}
+ var w=cv.width,h=cv.height,ctx=cv.getContext('2d');
+ var sc=dpr;
+ var p=phys(),n=Math.max(1,p.layerCount);
+ var padT=6*sc, padB=16*sc;
+ var rowH=Math.floor((h-padT-padB)/4);      // four slots, so the axis never jumps
+ ctx.clearRect(0,0,w,h);
+
+ // gridlines at the octaves
+ ctx.strokeStyle='#1b2230';ctx.fillStyle='#4d5560';
+ ctx.font=Math.round(10*sc)+'px system-ui,sans-serif';ctx.textAlign='center';
+ var ticks=[65,125,250,500,1000,2000,4000,8000];
+ ticks.forEach(function(f){
+  if(f>BM_HI)return;
+  var x=bmX(f,w);
+  ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,h-padB);ctx.stroke();
+ });
+
+ // live spectrum silhouette, faint, behind everything
+ var spec=ST.spec||[];
+ if(spec.length){
+  ctx.beginPath();ctx.moveTo(0,h-padB);
+  for(var i=0;i<spec.length;i++){
+   var hz=BM_LO*Math.pow(BM_HI/BM_LO,(i+0.5)/spec.length);
+   ctx.lineTo(bmX(hz,w),h-padB-(spec[i]/100)*(h-padT-padB));
+  }
+  ctx.lineTo(w,h-padB);ctx.closePath();
+  ctx.fillStyle='rgba(88,166,255,.11)';ctx.fill();
+ }
+
+ // one row per layer
+ for(var l=0;l<n;l++){
+  var ly=p.layers[l];
+  var y=padT+l*rowH;
+  var lo=ly.centerHz-ly.widthHz/2, hi=ly.centerHz+ly.widthHz/2;
+  var x0=bmX(lo,w), x1=bmX(hi,w);
+  if(x1<x0+3*sc)x1=x0+3*sc;
+  var col='#'+(ly.color||'808080');
+  var on=ly.enabled;
+  // the band
+  ctx.globalAlpha=on?0.20:0.08;
+  ctx.fillStyle=col;
+  ctx.fillRect(x0,y+2,x1-x0,rowH-5);
+  // how much of that band is there right now
+  var lvl=Math.max(0,Math.min(100,ly.levelPct||0));
+  ctx.globalAlpha=on?0.85:0.25;
+  ctx.fillRect(x0,y+2*sc,Math.round((x1-x0)*lvl/100),rowH-5*sc);
+  // edges + centre
+  ctx.globalAlpha=on?1:0.4;
+  ctx.strokeStyle=col;ctx.lineWidth=1.5*sc;
+  ctx.beginPath();ctx.moveTo(x0,y+sc);ctx.lineTo(x0,y+rowH-3*sc);
+  ctx.moveTo(x1,y+sc);ctx.lineTo(x1,y+rowH-3*sc);ctx.stroke();
+  var cx=bmX(ly.centerHz,w);
+  ctx.beginPath();ctx.moveTo(cx,y);ctx.lineTo(cx,y+rowH-2*sc);ctx.stroke();
+  // label
+  ctx.globalAlpha=1;
+  ctx.textAlign='left';
+  ctx.font='bold '+Math.round(11*sc)+'px system-ui,sans-serif';
+  ctx.fillStyle=on?col:'#5a6270';
+  ctx.fillText('L'+(l+1),4*sc,y+rowH-6*sc);
+  ctx.font=Math.round(10*sc)+'px system-ui,sans-serif';
+  ctx.fillStyle=on?'#c9d1d9':'#5a6270';
+  var txt=ly.centerHz+' Hz ±'+Math.round(ly.widthHz/2);
+  ctx.textAlign='right';
+  ctx.fillText(txt,w-4*sc,y+rowH-6*sc);
+  ctx.textAlign='left';
+ }
+ ctx.globalAlpha=1;
+
+ // axis labels
+ var lbl='';
+ ticks.forEach(function(f){
+  if(f>BM_HI)return;
+  lbl+='<span style="left:'+(bmX(f,w)/w*100)+'%">'+(f>=1000?(f/1000)+'k':f)+'</span>';
+ });
+ $('bmlbl').innerHTML=lbl;
+ $('bmhint').textContent=p.layerCount+' layer'+(p.layerCount>1?'s':'')
+  +' \u00b7 '+(ST.levelPct||0)+'% input now';
+}
 /* ---- presets ----
    A slot chip shows what the slot holds (its layer colours), so it is obvious
    whether a slot is used. Recall and Save act on the selected slot, report what
@@ -1447,7 +1559,12 @@ String WebUi::stateJson() const {
   kvu("agcPeakPct", tele_.agcPeakPct);
   comma();
   kvu("unsaved", unsaved_ ? 1u : 0u);
-  appendf(buf, sizeof(buf), n, ",\"presets\":[");
+  appendf(buf, sizeof(buf), n, ",\"spec\":[");
+  for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
+    appendf(buf, sizeof(buf), n, "%s%u", b == 0 ? "" : ",",
+            (unsigned)tele_.spec[b]);
+  }
+  appendf(buf, sizeof(buf), n, "],\"presets\":[");
   for (uint8_t i = 0; i < SettingsStore::kPresetCount; i++) {
     const PresetSummary &ps = preset_[i];
     appendf(buf, sizeof(buf), n, "%s{\"has\":%u,\"layers\":%u,\"cols\":\"",
