@@ -444,10 +444,18 @@ it when the slider is released.
   taps buttons by accident.
 * **Strip 1 / Strip 2** tabs select the physical container; a **layer list**
   inside it shows one row per layer and selects which layer the cards below edit.
-* **+ Add layer** duplicates the layer being edited in another colour at 60 %
-  weight and selects it, so a second beam is visible immediately. **Remove**
-  deletes the layer being edited and shifts the rest up; **Solo** previews one
-  layer alone.
+* **+ Add layer** creates a **fresh, switched-off** layer in the next free slot,
+  in that slot's palette colour and on its own band, and selects it; adding never
+  changes the light already on the strip. **Remove** deletes the layer being
+  edited and shifts the rest up; **Solo** previews one layer alone.
+* Structural edits are **events, not values**: each tap sends exactly one
+  `layerAdd` / `layerRemove`, it is never retried and never reconciled against the
+  state, and a second tap within 500 ms is ignored. A retried "add layer" would be
+  a second layer, so structural requests are kept out of the retry machinery
+  entirely.
+* Slots above a strip's `layerCount` are held at their fresh default at all times
+  (in RAM and therefore in NVS), so raising the count can never resurrect a layer
+  from an earlier session.
 * With a single layer the count reads `1 of 4 · single beam`, so the row can
   never be mistaken for hidden layers. The layer cards below keep working
   normally.

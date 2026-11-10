@@ -387,6 +387,41 @@ The layer list now separates the facts:
 signals. Colour that changes meaning (identity vs. state) is the most common form of
 this bug in this UI.
 
+### Values can be retried; events cannot (2026-11-11)
+The write queue records every write as a *desire* and re-sends it until the board's
+state matches. That is right for values (`thresholdPct`, `color`) and wrong for
+events. `layerAdd=1` has no matching field in `/api/state`, so `reconcile()` could
+never satisfy it: the desire stayed in `DES` forever, `tries` climbed, and every
+later flush that the user triggered by touching any slider re-sent it. One tap made
+one layer; the *next* touch made a second. `layerRemove` did the same, deleting a
+layer per touch.
+
+The visible symptom was "adding or removing sometimes does two", which is exactly
+what a latent re-send looks like: it depends on what the user does next.
+
+Structural requests now go through `sendOnce()`, which marks the entry `once`:
+- `reconcile()` skips it (nothing to compare against),
+- `done()` deletes it after the reply, success or not, and says so on failure,
+- a second tap within 500 ms is ignored, so a double tap is one layer.
+
+**Rule:** if `boardVal(state, key)` cannot ever equal what you sent, the key is an
+event and must not enter the retry queue. Check that every `want()` key has a field
+in the state JSON.
+
+### A count and an edit must not both describe the same change (2026-11-11)
+`handleParams()` applied `layerCount` and *then* `layerAdd`/`layerRemove`. A request
+carrying both therefore raised the count to N and then added another layer on top, or
+removed a layer from an already-decremented count. Structural requests now own the
+count: `layerCount` is ignored whenever `layerAdd`/`layerRemove` is present.
+
+### Persisted memory must not be readable outside the live range (2026-11-11)
+NVS stores all four layer slots per strip, but only `layerCount` of them are live.
+Nothing reset the dead ones, so their contents survived reboots and became visible
+layers the instant the count was raised — the "new" layer was the ghost of an old
+one. `clampSettings()` now forces every slot at or above `layerCount` back to
+`defaultLayerFor(slot)`, so a dead slot is always a fresh one. This runs on load and
+after every write, so the blob in NVS stays clean too.
+
 ### Layer creation and deletion are explicit board actions (2026-11-08)
 `layerCount` arithmetic from the page could not say *which* slot to remove, so
 "Remove" always truncated the last layer while the user was looking at another one.

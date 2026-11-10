@@ -333,11 +333,11 @@ function boardVal(s,p,l,k){
 function inFlight(p,l,k){
  return DES[scopeId(p,l,k)]!==undefined;
 }
-function want(p,l,k,v){
+function want(p,l,k,v,once){
  var id=scopeId(p,l,k);
  var e=DES[id];
- if(!e){e={p:p,l:l,k:k,v:v,tries:0,ts:Date.now(),due:0};DES[id]=e;}
- else{e.v=v;e.ts=Date.now();e.due=0;}
+ if(!e){e={p:p,l:l,k:k,v:v,tries:0,ts:Date.now(),due:0,once:!!once};DES[id]=e;}
+ else{e.v=v;e.ts=Date.now();e.due=0;e.once=!!once;}
  if(Q.indexOf(id)<0)Q.push(id);
  USER_TS=Date.now();
  if(!PTMR&&!busySocket()){PTMR=setTimeout(function(){PTMR=0;flush();},45);}
@@ -347,6 +347,17 @@ function want(p,l,k,v){
 function sendLayer(k,v){want(S,L,k,v);}
 function sendPhys(k,v){want(S,null,k,v);}
 function sendGlobal(k,v){want(0,null,k,v);}
+/* Structural writes are not values, they are events: "add one layer" twice is two
+   layers. They therefore never become a *desire* - a desire is re-sent until the
+   board's state agrees with it, and the state can never agree with an event. */
+function sendOnce(k,v){want(S,null,k,v,true);}
+var STRUCT_AT=0;
+/* One structural request at a time: either one is still in flight, or the last
+   one answered so recently that this is the second half of a double tap. */
+function structBusy(){
+ for(var id in DES)if(DES[id].once)return true;
+ return Date.now()-STRUCT_AT<500;
+}
 function urlFor(e){
  return 'strip='+e.p+(e.l===null||e.l===undefined?'':'&layer='+e.l)
   +'&'+e.k+'='+encodeURIComponent(e.v);
@@ -391,7 +402,12 @@ function flush(){
  INFLIGHT=true;SENT_AT=Date.now();
  var done=function(ok){
   INFLIGHT=false;
-  if(!ok&&DES[id]){
+  if(e.once){
+   // Sent once, never retried: a retried "add layer" is a second layer.
+   delete DES[id];
+   if(!ok)flashMsg('the board did not answer - nothing was changed');
+  }
+  if(!ok&&!e.once&&DES[id]){
    e.tries++;
    // 150 ms, 300, 600, 1.2 s, then every 2 s: a board that is unreachable for a
    // few seconds still ends up with the value, without flooding it.
@@ -422,6 +438,9 @@ function reconcile(s){
  var now=Date.now();
  for(var id in DES){
   var e=DES[id];
+  // An event has no matching value in the state, so comparing it would keep it
+  // forever and re-fire it on every poll. It is done when its request returns.
+  if(e.once)continue;
   if(String(boardVal(s,e.p,e.l,e.k))===String(e.v)){delete DES[id];continue;}
   if(now-e.ts>700&&e.tries<10&&(e.due||0)<=now){
    e.tries++;e.ts=now;
@@ -848,17 +867,24 @@ function build(){
  $('addlayer').onclick=function(){
   var n=layerCount();
   if(n>=4){flashMsg('Maximum 4 layers');return;}
+  if(structBusy())return;
+  STRUCT_AT=Date.now();
   // A new layer arrives switched OFF, with its own colour and band, so adding
   // one never changes the light that is already on the strip.
-  sendPhys('layerAdd',1);
+  sendOnce('layerAdd',1);
   syncState(function(){L=layerCount()-1;fillInputs();live();
    flashMsg('Layer '+(L+1)+' added - it is off, switch it on');});
  };
  $('remlayer').onclick=function(){
   var n=layerCount();
   if(n<=1){flashMsg('One layer must stay (power it off instead)');return;}
-  sendPhys('layerRemove',L);
-  syncState(function(){if(L>layerCount()-1)L=layerCount()-1;fillInputs();live();});
+  if(structBusy())return;
+  STRUCT_AT=Date.now();
+  sendOnce('layerRemove',L);
+  syncState(function(){
+   if(L>layerCount()-1)L=layerCount()-1;
+   fillInputs();live();
+   flashMsg('Layer '+(L+1)+' removed');});
  };
  $('solobtn').onclick=function(){
   SOLO=(SOLO===L)?-1:L;
@@ -1869,8 +1895,12 @@ void WebUi::addLayer(size_t p) {
   // A fresh slot, not a copy: adding a layer must not change the light that is
   // already on the strip. It arrives switched off, in its own colour and on its
   // own band, so switching it on gives a second beam rather than a clone.
-  settings_->layer[p][ps.layerCount] = defaultLayerFor(ps.layerCount);
-  edit_[p] = ps.layerCount;
+  // Every slot from the new one upwards is reset, so a count raised by more than
+  // one step can never expose a half-remembered layer.
+  for (uint8_t l = (uint8_t)ps.layerCount; l < kMaxLayersPerStrip; l++) {
+    settings_->layer[p][l] = defaultLayerFor(l);
+  }
+  edit_[p] = (uint8_t)ps.layerCount;
   ps.layerCount++;
   clampSettings(*settings_);
 }
@@ -1916,11 +1946,17 @@ void WebUi::handleParams() {
     PhysicalStripSettings &ps = settings_->phys[p];
     applyArg("ledCount", &ps.ledCount);
     applyArg("brightnessPct", &ps.brightnessPct);
-    applyArg("layerCount", &ps.layerCount);
 
     // Structure edits are explicit requests rather than arithmetic on the
     // count, so the page and the board cannot disagree about which slot is
-    // being created or destroyed.
+    // being created or destroyed. A structural request owns the count: setting
+    // it as well (older pages did) applied the change twice, once by the count
+    // and once by the edit.
+    const bool structural =
+        server_.hasArg("layerAdd") || server_.hasArg("layerRemove");
+    if (!structural) {
+      applyArg("layerCount", &ps.layerCount);
+    }
     if (server_.hasArg("layerAdd")) {
       addLayer(p);
     }

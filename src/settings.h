@@ -194,8 +194,18 @@ inline LayerSettings defaultLayerFor(uint8_t slot) {
 inline void clampSettings(Settings &s) {
   for (size_t i = 0; i < kStripCount; i++) {
     clampPhysicalStrip(s.phys[i]);
+    const uint8_t live = s.phys[i].layerCount;
     for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
-      clampLayer(s.layer[i][l]);
+      // Slots above the live count are not rendered, but they are persisted, so
+      // whatever NVS happens to hold there would become a real, visible layer the
+      // moment the count is raised. Keep them at the fresh default instead, which
+      // is what makes "add a layer" always start from a known state rather than
+      // from the remains of an earlier session.
+      if (l >= live) {
+        s.layer[i][l] = defaultLayerFor((uint8_t)l);
+      } else {
+        clampLayer(s.layer[i][l]);
+      }
     }
   }
 

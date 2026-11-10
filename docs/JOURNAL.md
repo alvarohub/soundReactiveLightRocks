@@ -1381,3 +1381,49 @@ in the browser against the mock with 4 layers, 2 of them off.
   frame (now 92 bytes) and shown in the header only above 40 ms (amber) / 90 ms (red).
   Taken *before* the clamp, because the clamp is precisely what hides stalls.
 * Firmware **v2.1**.
+
+---
+
+## 2026-11-11 — One tap, two layers
+
+### Symptom
+Adding or removing a layer sometimes did it twice, inconsistently, and a layer added
+after a previous session came back with settings that belonged to nobody.
+
+### Cause 1 — an event in a retry queue
+`sendPhys('layerAdd',1)` recorded `{k:'layerAdd', v:1}` as a *desire*. Desires are
+re-sent until `/api/state` agrees with them; the state has no `layerAdd` field, so it
+could never agree. The entry sat in `DES` and was re-queued by `reconcile()` on every
+poll, then sent on the next flush — which only happens when the user touches
+something. So the second layer appeared on the *next* interaction, several seconds
+later, which is why it looked random. `layerRemove` behaved the same way, and because
+the payload is the index that was selected at tap time, repeated removals ate layers
+from the middle of the stack.
+
+Reproduced in a mock board: after one tap the desire was still present with
+`tries:8` while only one POST had been sent.
+
+Fixed with event semantics — `sendOnce()` marks the desire as an event that
+`reconcile()` ignores and `flush()` never retries — plus a 500 ms debounce so a
+double tap is one layer.
+
+### Cause 2 — two descriptions of one change
+`handleParams()` applied `layerCount` *before* `layerAdd`/`layerRemove`, so a request
+that carried both changed the count twice. Structural requests now suppress the count.
+
+### Cause 3 — dead slots kept their data
+The NVS blob holds four layer slots per strip regardless of `layerCount`. The slots
+above the count were never reset, so they survived reboots with their old colour,
+band, threshold and `enabled` flag, and became visible the moment the count rose.
+`clampSettings()` now resets every slot at or above `layerCount` to
+`defaultLayerFor(slot)`, which makes "add a layer" always start from a known state.
+
+### Verified
+Mock board counting POSTs: one tap → `layerAdd:1`; four taps 80 ms apart → still
+`layerAdd:1`; two taps 900 ms apart → 2 (long idle in between included, the old ghost
+trigger); a slider nudge after an add no longer re-sends it; `DES` is empty once the
+reply arrives. Host test of `settings.h`: stale slots reset, live slots untouched, a
+raised count exposes a fresh slot, `layerCount` clamped to 4.
+
+Firmware **v2.2**.
+
