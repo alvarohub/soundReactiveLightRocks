@@ -4,7 +4,7 @@
 > happens to do today. When behaviour and this file disagree, one of them is a bug.
 > Progress against this spec is tracked in [JOURNAL.md](./JOURNAL.md).
 
-Status: **v0.6 — physical strips as containers for up to 4 light layers, five non-exclusive trigger inputs (threshold, beat, pads, accelerometer, gyroscope), five effects including the whip, per-layer intensity, solo preview, per-layer pad view, M5StickS3 + M5StickC Plus2**.
+Status: **v0.7 — physical strips as containers for up to 4 light layers, five non-exclusive trigger inputs (threshold, beat, pads, accelerometer, gyroscope), five effects including the whip, per-layer intensity, solo preview, per-layer pad view, M5StickS3 + M5StickC Plus2**.
 
 ---
 
@@ -470,6 +470,10 @@ it when the slider is released.
 * The microphone card shows a **room-level meter** on the analyser's own scale
   (−55…−18 dBFS) with quiet / good / hot zones, and one sentence saying what the AGC
   is doing (`raising`, `holding`, `lowering` or `idle`) and on what peak level.
+* **Presets** are three slot chips that preview their contents (one dot per layer,
+  in that layer's colour) plus two verbs, `Recall` and `Save here`. Recall is
+  disabled on an empty slot; overwriting and recalling both require a second tap
+  within 4 s. `/api/state` carries `presets:[{has,layers,cols}]`.
 * Live readouts (`lvl …%, … active`, the layer subtitle, the pad group headers) are
   single-line and truncated rather than wrapped, so growing numbers never reflow
   the page.
@@ -504,7 +508,7 @@ it when the slider is released.
 | POST | `/api/params?strip=<p>&layer=<l>&<key>=<value>` | Change one **layer** (204, no body) |
 | POST | `/api/params?gainDb=<n>` | Microphone gain |
 | POST | `/api/tap?strip=<p>&layer=<l>&effect=<0..3>&down=<0\|1>` | Fire an effect from a pad; `down=1` also starts/refreshes the hold |
-| POST | `/api/preset?slot=<1\|2\|3>&action=<save\|load>` | Save current state to preset bank 1–3, or load a bank into live state |
+| POST | `/api/preset?slot=<1\|2\|3>&action=<save\|load>` | Save the live state to a slot, or load a slot into the live state. Returns the new state, or 400 when the slot is empty/unwritable |
 | POST | `/api/reset` | Factory reset (restores hardcoded code defaults, keeps presets) |
 
 Unknown arguments are ignored; out-of-range values are clamped.

@@ -101,6 +101,9 @@ private:
   // remove deletes one slot and compacts the rest.
   void addLayer(size_t p);
   void removeLayer(size_t p, uint8_t index);
+  // Re-read what each preset slot holds. Called at boot and after any preset or
+  // reset action, so the page never shows a stale slot.
+  void refreshPresets();
   void applyArg(const char *name, uint8_t *dst);
   void applyArg(const char *name, uint16_t *dst);
   void applyArg(const char *name, int8_t *dst);
@@ -124,4 +127,5 @@ private:
   bool routesBound_ = false;
   bool changed_ = false;
   bool unsaved_ = false;
+  PresetSummary preset_[SettingsStore::kPresetCount];
 };

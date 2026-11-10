@@ -322,6 +322,18 @@ bool decodeSettings(const uint8_t *in, size_t len, Settings &out);
 
 // Keeps the live parameters and three preset slots in NVS so they survive a
 // power cycle. Slot indices are 0-based here; the web API uses 1-based numbers.
+// What a preset slot holds, so the page can show it instead of a bare number.
+struct PresetSummary {
+  static constexpr uint8_t kMaxColors = kMaxLayersPerStrip;
+  bool valid = false;
+  uint8_t layers = 0; // live layers across every strip
+  uint8_t colorCount = 0;
+  // One colour per live layer (the first few), so a slot can be previewed.
+  uint8_t r[kMaxColors] = {};
+  uint8_t g[kMaxColors] = {};
+  uint8_t b[kMaxColors] = {};
+};
+
 class SettingsStore {
 public:
   static constexpr uint8_t kPresetCount = 3;
@@ -334,6 +346,8 @@ public:
   bool loadPreset(uint8_t slot, Settings &out);
   bool savePreset(uint8_t slot, const Settings &s);
   bool hasPreset(uint8_t slot) const;
+  // Decodes a slot just enough to describe it. Leaves the live settings alone.
+  bool presetSummary(uint8_t slot, PresetSummary &out);
 
 private:
   static const char *presetKey(uint8_t slot);

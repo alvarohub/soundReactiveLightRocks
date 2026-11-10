@@ -82,6 +82,21 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .btn{padding:11px;border-radius:9px;border:1px solid #2b323c;background:#21262e;color:#e6edf3;font-size:.95rem}
 .btn.alt{background:#16261a;border-color:#2ea043}
 .btn.warn{background:#2a1a1a;border-color:#6b2b2b;color:#ff7b72}
+/* Preset slots: one chip per slot showing what it actually holds (the colours
+   of its layers), so "is this slot used, and with what" needs no guessing. */
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
+.slot{position:relative;padding:8px 6px 7px;border-radius:10px;border:2px solid #3a424d;background:#161a20;color:#8b949e;font-size:.82rem;font-weight:600;text-align:left;min-height:56px;touch-action:manipulation}
+.slot b{display:block;color:#3a424d;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;font-weight:700}
+.slot .dots{display:flex;gap:3px;margin-top:5px;height:12px}
+.slot .dots i{width:12px;height:12px;border-radius:50%;display:block;border:1px solid rgba(0,0,0,.5)}
+.slot .lay{display:block;font-size:.66rem;font-weight:500;color:#8b949e;margin-top:3px}
+.slot.used{border-color:#30363d;color:#e6edf3}
+.slot.sel{border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.25)}
+.slot.empty b{color:#484f58}
+.slot.empty .lay{color:#484f58}
+/* A dangerous action asks twice and looks different while it is asking. */
+.btn.armed{background:#3a2411;border-color:#d29922;color:#ffd580}
+.btn:disabled{opacity:.3;cursor:not-allowed}
 #pmsg{color:#8b949e;font-size:.78rem;font-weight:400}
 .ptitle{margin:0 0 8px;padding-left:9px;border-left:4px solid #58a6ff;font-weight:600;color:#f0f6fc}
 .ptitle small{display:block;font-weight:400;font-size:.76rem;color:#8b949e;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -178,16 +193,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=card id=animbox></div>
 
 <div class=card>
-<div class="row first"><span>Presets</span><b id=pmsg></b></div>
-<div class=grid>
-<button id=sp1 class=btn>Save 1</button>
-<button id=ld1 class="btn alt">Load 1</button>
-<button id=sp2 class=btn>Save 2</button>
-<button id=ld2 class="btn alt">Load 2</button>
-<button id=sp3 class=btn>Save 3</button>
-<button id=ld3 class="btn alt">Load 3</button>
+<div class="row first"><span>Preset slots</span><b id=pmsg></b></div>
+<div class=slots id=slots></div>
+<div class=rline style="margin-top:8px">
+<button id=ldbtn class="btn alt" style="flex:1">Recall</button>
+<button id=spbtn class=btn style="flex:1">Save here</button>
 </div>
-<button id=rst class="btn warn wide">Factory reset</button>
+<div class=hint id=sthint>pick a slot, then Recall or Save. Saving over a used slot asks twice.</div>
+<button id=rst class="btn warn wide" style="margin-top:10px">Reset live settings</button>
 </div>
 
 <div class=hint style="text-align:center">BtnA: cycle triggers &middot; BtnB: next strip &middot; hold A: Wi-Fi &middot; hold B: save</div>
@@ -997,9 +1010,7 @@ function live(){
  if($('agcbtn')&&!inFlight(0,null,'agc')){AGC=ST.agc?1:0;setAgc();}
  if(!MSGTMR)$('pmsg').textContent=ST.unsaved?'auto-saving…':'auto-saved';
  $('gainDbv').textContent=(ST.gainDb>0?'+':'')+ST.gainDb+' dB';
- $('ld1').disabled=!ST.hasPreset0;
- $('ld2').disabled=!ST.hasPreset1;
- $('ld3').disabled=!ST.hasPreset2;
+ if($('slots')&&(ST.presets||[]).length)buildSlots();
 }
 function layModeName(l){
  if(!l)return '-';
@@ -1058,15 +1069,21 @@ function apply(s){
  }
  live();
 }
+/* Returns the new state, or null when the board refused or did not answer - so a
+   caller can only report success when there was some. */
 function post(u,refresh){
- // Goes through the same single-socket rule as everything else: a preset POST
- // racing the poll is what used to make one of them hang.
  INFLIGHT=true;SENT_AT=Date.now();
  var opt=abortAfter(4000);
  opt.method='POST';opt.cache='no-store';
- return fetch(u,opt).then(function(r){INFLIGHT=false;return r.json();}).then(function(s){
-  apply(s);if(refresh)fillInputs();return s;
- },function(){INFLIGHT=false;flashMsg('request failed');});
+ return fetch(u,opt).then(function(r){
+  INFLIGHT=false;
+  if(!r.ok)return null;
+  return r.json();
+ },function(){INFLIGHT=false;return null;}).then(function(s){
+  if(!s){flashMsg('the board refused that request');return null;}
+  apply(s);if(refresh)fillInputs();buildSlots();
+  return s;
+ });
 }
 $('host').textContent=location.host;
 function setAgc(){
@@ -1116,14 +1133,99 @@ $('gainDb').addEventListener('input',function(){
  $('gainDbv').textContent=(v>0?'+':'')+v+' dB';
 });
 $('gainDb').addEventListener('change',function(){sendGlobal('gainDb',$('gainDb').value);flush();});
-[1,2,3].forEach(function(n){
- $('sp'+n).onclick=function(){flush();post('/api/preset?slot='+n+'&action=save',false).then(function(){flashMsg('Preset '+n+' saved');});};
- $('ld'+n).onclick=function(){flush();post('/api/preset?slot='+n+'&action=load',true).then(function(){flashMsg('Preset '+n+' loaded');});};
-});
-$('rst').onclick=function(){
- if(confirm('Reset current parameters to factory defaults? (Saved presets are kept.)')){
-  post('/api/reset',true).then(function(){flashMsg('Factory defaults restored');});
+/* ---- presets ----
+   A slot chip shows what the slot holds (its layer colours), so it is obvious
+   whether a slot is used. Recall and Save act on the selected slot, report what
+   happened, and ask twice before destroying anything: a second tap within four
+   seconds confirms. */
+var SLOT=0, ARMED='';
+function presetOf(i){return ST&&ST.presets&&ST.presets[i]?ST.presets[i]:{has:0,layers:0,cols:''};}
+function arm(id,label){
+ ARMED=id;
+ var b=$(id);b.classList.add('armed');b.textContent=label;
+ setTimeout(disarm,4000);
+}
+function disarm(){
+ if(ARMED){var b=$(ARMED);if(b){b.classList.remove('armed');}
+  if(ARMED==='spbtn')$('spbtn').textContent='Save here';
+  if(ARMED==='ldbtn')$('ldbtn').textContent='Recall';}
+ ARMED='';
+}
+var SLOT_SIG='';
+/* Signature of what the chips show. Rebuilding the innerHTML on every state read
+   detaches the node under the user's finger - a tap aimed at "slot 2" lands on
+   nothing - so the chips are only rebuilt when their content actually changes. */
+function slotsSig(){
+ var t='sel'+SLOT;
+ for(var i=0;i<3;i++){var p=presetOf(i);t+='|'+p.has+'/'+p.layers+'/'+(p.cols||'');}
+ return t;
+}
+function buildSlots(){
+ var sig=slotsSig();
+ if(sig!==SLOT_SIG){
+  SLOT_SIG=sig;
+  var html='';
+  for(var i=0;i<3;i++){
+   var p=presetOf(i),dots='';
+   var cols=(p.cols||'').split(' ').filter(function(c){return c.length===6;});
+   cols.forEach(function(c){dots+='<i style="background:#'+c+'"></i>';});
+   var n=p.layers||1;
+   html+='<button type=button class="slot'+(p.has?' used':' empty')+(i===SLOT?' sel':'')+'" id=slot'+i+'>'
+    +'<b>Slot '+(i+1)+'</b>'
+    +(p.has?('<span class=dots>'+dots+'</span><span class=lay>'
+      +n+' layer'+(n>1?'s':'')+'</span>'):'<span class=lay>empty</span>')
+    +'</button>';
+  }
+  $('slots').innerHTML=html;
+  for(var j=0;j<3;j++){(function(n){$('slot'+n).onclick=function(){
+   SLOT=n;disarm();buildSlots();
+   var p=presetOf(n);
+   $('sthint').textContent=p.has
+    ?('Slot '+(n+1)+': '+(p.layers||1)+' layer'+((p.layers||1)>1?'s':'')+'. Recall replaces the live settings.')
+    :('Slot '+(n+1)+' is empty: nothing to recall, Save writes here.');
+  };}) (j);}
  }
+ updatePresetButtons();
+}
+function updatePresetButtons(){
+ var p=presetOf(SLOT);
+ $('ldbtn').disabled=!p.has;
+ if(ARMED!=='ldbtn')$('ldbtn').textContent='Recall';
+ if(ARMED!=='spbtn')$('spbtn').textContent=p.has?'Save here (overwrite)':'Save here';
+}
+$('ldbtn').onclick=function(){
+ if(ARMED==='ldbtn'){
+  disarm();
+  post('/api/preset?slot='+(SLOT+1)+'&action=load',true).then(function(s){
+   if(!s)return;
+   flashMsg('Recalled slot '+(SLOT+1));
+   $('sthint').textContent='Recall of slot '+(SLOT+1)+' applied to the live settings.';
+  });
+  return;
+ }
+ if(!presetOf(SLOT).has){flashMsg('Slot '+(SLOT+1)+' is empty');return;}
+ arm('ldbtn','Tap again: replace live');
+};
+$('spbtn').onclick=function(){
+ var p=presetOf(SLOT);
+ if(p.has&&ARMED!=='spbtn'){
+  arm('spbtn','Tap again: overwrite');
+  return;
+ }
+ disarm();
+ post('/api/preset?slot='+(SLOT+1)+'&action=save',true).then(function(s){
+  if(!s)return;
+  flashMsg('Saved to slot '+(SLOT+1));
+  $('sthint').textContent='Slot '+(SLOT+1)+' now holds these settings.';
+ });
+};
+$('rst').onclick=function(){
+ if(ARMED==='rst'){
+  disarm();
+  post('/api/reset',true).then(function(s){if(s)flashMsg('Live settings reset');});
+  return;
+ }
+ arm('rst','Tap again: reset live');
 };
 function poll(){
  dragWatchdog();
@@ -1198,6 +1300,7 @@ bool WebUi::setEnabled(bool on) {
   bindRoutes();
   server_.enableDelay(false);
   server_.begin();
+  refreshPresets();
   enabled_ = true;
   Serial.printf("[web] \"%s\" / \"%s\" -> http://%s\n", kSsid, kPassword,
                 ip().c_str());
@@ -1344,13 +1447,18 @@ String WebUi::stateJson() const {
   kvu("agcPeakPct", tele_.agcPeakPct);
   comma();
   kvu("unsaved", unsaved_ ? 1u : 0u);
-  comma();
-  kvu("hasPreset0", store_ && store_->hasPreset(0) ? 1u : 0u);
-  comma();
-  kvu("hasPreset1", store_ && store_->hasPreset(1) ? 1u : 0u);
-  comma();
-  kvu("hasPreset2", store_ && store_->hasPreset(2) ? 1u : 0u);
-  appendf(buf, sizeof(buf), n, "}");
+  appendf(buf, sizeof(buf), n, ",\"presets\":[");
+  for (uint8_t i = 0; i < SettingsStore::kPresetCount; i++) {
+    const PresetSummary &ps = preset_[i];
+    appendf(buf, sizeof(buf), n, "%s{\"has\":%u,\"layers\":%u,\"cols\":\"",
+            i == 0 ? "" : ",", ps.valid ? 1u : 0u, (unsigned)ps.layers);
+    for (uint8_t c = 0; c < ps.colorCount; c++) {
+      appendf(buf, sizeof(buf), n, "%s%02x%02x%02x", c == 0 ? "" : " ",
+              (unsigned)ps.r[c], (unsigned)ps.g[c], (unsigned)ps.b[c]);
+    }
+    appendf(buf, sizeof(buf), n, "\"}");
+  }
+  appendf(buf, sizeof(buf), n, "]}");
 
   return String(buf);
 }
@@ -1397,6 +1505,14 @@ void WebUi::applyArg(const char *name, uint16_t *dst) {
     return;
   }
   *dst = (uint16_t)constrain(server_.arg(name).toInt(), 0L, 65535L);
+}
+
+void WebUi::refreshPresets() {
+  for (uint8_t i = 0; i < SettingsStore::kPresetCount; i++) {
+    if (store_ == nullptr || !store_->presetSummary(i, preset_[i])) {
+      preset_[i] = PresetSummary();
+    }
+  }
 }
 
 void WebUi::addLayer(size_t p) {
@@ -1602,6 +1718,7 @@ void WebUi::handlePreset() {
     }
   }
 
+  refreshPresets();
   Serial.printf("[web] preset %d %s -> %s\n", slot, action.c_str(),
                 ok ? "ok" : "failed");
 
@@ -1622,6 +1739,7 @@ void WebUi::handleReset() {
   changed_ = true;
   unsaved_ = !ok;
 
+  refreshPresets();
   Serial.println("[web] factory reset");
 
   server_.sendHeader("Cache-Control", "no-store");

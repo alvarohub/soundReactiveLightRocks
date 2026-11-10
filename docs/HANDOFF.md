@@ -202,6 +202,35 @@ Rows repaint incrementally like the bars: geometry/colour changes redraw the row
 a level change repaints only the delta (and repaints the track, not black, when
 the level falls), and the trigger dot only when it flips.
 
+### Presets: slots you can read, destructive actions that ask twice (2026-11-10)
+Six big `Save n` / `Load n` buttons were unreadable: nothing said whether a slot
+held anything, a click on Save gave no confirmation, and an empty slot's Load looked
+enabled because it carried the green "alt" style.
+
+The pattern now (the usual one for destructive hardware/phone actions):
+* **a slot chip per slot**, showing what the slot actually holds - the colours of
+  its layers and the layer count - so "used or free" needs no guessing;
+* tap a chip to **select**, then one of two verbs: `Recall` or `Save here`;
+* `Recall` on an empty slot is **disabled**, not merely dimmed;
+* Save over a used slot and Recall both **ask twice** ("Tap again: overwrite"),
+  arming for 4 s and then reverting;
+* every outcome is **reported**: `Saved to slot 1`, `Recalled slot 2`, `Slot 3 is
+  empty`, or `the board refused that request`.
+
+Firmware side: `SettingsStore::presetSummary()` decodes a slot just enough to
+describe it (layer count + up to four layer colours), `WebUi::refreshPresets()` is
+called at boot and after every preset/reset action, and `/api/state` carries
+`presets:[{has,layers,cols}]`. A slot saved while the page is open now updates
+immediately instead of only after a reboot.
+
+**Also fixed:** `post()` used to treat any response as success, so the toast always
+said "saved". It now returns null on a non-2xx or a failed fetch, and only then
+does the caller report anything.
+
+**Gotcha, again:** the slot chips are rebuilt only when their signature changes.
+Rebuilding the `innerHTML` on every state read detaches the node under the user's
+finger and the tap is lost - the same failure as the layer tabs.
+
 ### Writes are queued AND reconciled; the page never assumes one landed (2026-11-10)
 Dropping the lost-socket wedge was not enough. A write could still be lost and the
 next state read would quietly put the board's old value back — the threshold marker

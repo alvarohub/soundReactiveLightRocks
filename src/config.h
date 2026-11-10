@@ -102,9 +102,9 @@ constexpr int8_t kGainStepDb = 3;
 // Web UI.
 // ---------------------------------------------------------------------------
 
-constexpr size_t kStateJsonMaxBytes = 4096;
+constexpr size_t kStateJsonMaxBytes = 4600;
 
 // Shown in the page header so it is obvious which build is running. Bump this
 // whenever behaviour changes; "did my upload take?" is asked more often than one
 // would think.
-constexpr char kFirmwareVersion[] = "v1.2";
+constexpr char kFirmwareVersion[] = "v1.3";

@@ -1139,6 +1139,40 @@ The strip card is now purely physical: `Physical strip (tabs) → Strip brightne
 LEDs on this strip → Calibrate → Light layers inside → Layer power/intensity`. The
 separate calibration card is gone.
 
+## 2026-11-10 (later) — Presets that say what they hold
+
+Six `Save n` / `Load n` buttons were the worst kind of UI: no indication of whether
+a slot was used, no confirmation that a save happened, and an empty slot's Load wore
+the green "alt" style so it looked ready.
+
+Redesigned around slots, which is how hardware and phone UIs usually do this:
+
+```
+Preset slots                              Saved to slot 1
+[SLOT 1  ●●●● 4 layers] [SLOT 2  ●●●● 4 layers] [SLOT 3  empty ]
+[ Recall ]                            [ Save here (overwrite) ]
+Slot 1 now holds these settings.
+```
+
+* a chip per slot **previews its contents**: the colour of each of its layers
+* select a chip, then `Recall` or `Save here`
+* `Recall` is disabled on an empty slot and the hint says why
+* overwriting a used slot and recalling both **ask twice**: the button turns amber
+  and reads "Tap again: overwrite", reverting after 4 s
+* every action reports its own outcome; `post()` no longer claims success when the
+  board refused
+
+Firmware: `presetSummary()` decodes a slot into `{layers, up to 4 colours}`,
+`refreshPresets()` runs at boot and after each preset/reset action, so a slot saved
+in the session is visible at once (before, `hasPreset_` was only re-read at boot).
+`/api/state` grew `presets:[{has,layers,cols}]`; the JSON cap went 4096 -> 4600
+Bytes and the worst case is 3872.
+
+Two bugs found while testing: the slot chips were rebuilt on every state read, which
+detached the node under the pointer and swallowed the tap (the same trap as the
+layer tabs - hence the signature guard); and `post()` ignored the HTTP status, so
+failures were reported as successes.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

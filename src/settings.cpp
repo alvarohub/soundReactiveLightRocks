@@ -464,6 +464,33 @@ bool SettingsStore::savePreset(uint8_t slot, const Settings &s) {
   return ok;
 }
 
+bool SettingsStore::presetSummary(uint8_t slot, PresetSummary &out) {
+  out = PresetSummary();
+  if (slot >= kPresetCount) {
+    return false;
+  }
+  Settings tmp;
+  if (!loadPreset(slot, tmp)) {
+    return false;
+  }
+  out.valid = true;
+  for (size_t i = 0; i < kStripCount; i++) {
+    const uint8_t count = tmp.phys[i].layerCount;
+    out.layers = (uint8_t)(out.layers + count);
+    for (uint8_t l = 0; l < count && l < kMaxLayersPerStrip; l++) {
+      if (out.colorCount >= PresetSummary::kMaxColors) {
+        break;
+      }
+      const LayerSettings &ls = tmp.layer[i][l];
+      out.r[out.colorCount] = ls.r;
+      out.g[out.colorCount] = ls.g;
+      out.b[out.colorCount] = ls.b;
+      out.colorCount++;
+    }
+  }
+  return true;
+}
+
 bool SettingsStore::hasPreset(uint8_t slot) const {
   return slot < kPresetCount && hasPreset_[slot];
 }
