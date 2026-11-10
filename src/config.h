@@ -49,6 +49,13 @@ constexpr uint32_t kSampleRate = 16000;
 constexpr size_t kFftSamples = 512; // power of two; 512 @ 16 kHz = 31.25 Hz bins
 
 // Usable analysis range, also the limits of the frequency windows.
+// Number of log-spaced display bands. It lives here, not in SpectrumAnalyzer,
+// because settings.h needs the count for its telemetry struct and must not
+// include audio_fft.h: the Arduino core ships its own Settings.h, which on a
+// case-insensitive filesystem happily resolves to this project's settings.h and
+// turns that include into a cycle.
+constexpr size_t kDisplayBands = 30;
+
 constexpr float kAudioMinHz = 65.0f;
 constexpr float kAudioMaxHz = 7600.0f;
 
@@ -107,4 +114,4 @@ constexpr size_t kStateJsonMaxBytes = 4600;
 // Shown in the page header so it is obvious which build is running. Bump this
 // whenever behaviour changes; "did my upload take?" is asked more often than one
 // would think.
-constexpr char kFirmwareVersion[] = "v1.4";
+constexpr char kFirmwareVersion[] = "v2.0";

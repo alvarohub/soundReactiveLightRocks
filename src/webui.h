@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "settings.h"
+#include "telemetry.h"
 
 // Access point + web page used as the remote control. The phone connects
 // straight to the board, so no router is involved.
@@ -67,6 +68,11 @@ public:
   }
 
   bool enabled() const { return enabled_; }
+  bool unsaved() const { return unsaved_; }
+
+  // The telemetry stream, so the HTTP fallback endpoint can serve the very same
+  // frame the socket pushes.
+  void setStream(TelemetryStream *s) { stream_ = s; }
   bool setEnabled(bool on);
   String ip() const;
   void setTelemetry(const Telemetry &t) { tele_ = t; }
@@ -91,6 +97,7 @@ private:
   String stateJson() const;
   void handleRoot();
   void handleState();
+  void handleTelemetry();
   void handleParams();
   void handleTap();
   void handlePreset();
@@ -109,6 +116,7 @@ private:
   void applyArg(const char *name, int8_t *dst);
 
   WebServer server_{80};
+  TelemetryStream *stream_ = nullptr;
   Settings *settings_ = nullptr;
   SettingsStore *store_ = nullptr;
   Telemetry tele_;

@@ -12,6 +12,7 @@
 #include "motion.h"
 #include "settings.h"
 #include "strip.h"
+#include "telemetry.h"
 #include "webui.h"
 
 namespace {
@@ -35,6 +36,7 @@ BeatInfo beatInfo[kStripCount][kMaxLayersPerStrip];
 Settings settings;
 SettingsStore store;
 WebUi web;
+TelemetryStream stream;
 Display display;
 
 // Physical strip the hardware buttons currently act on.
@@ -279,6 +281,11 @@ void handleButtons() {
 
   if (M5.BtnA.wasHold()) {
     const bool on = web.setEnabled(!web.enabled());
+    if (on) {
+      stream.begin();
+    } else {
+      stream.end();
+    }
     showBanner();
     delay(on ? 2000 : 800);
     finishBanner();
@@ -331,8 +338,13 @@ void setup() {
   audio.begin(&analyzer, &settings);
 
   web.setup(&settings, &store);
+  web.setStream(&stream);
   if (!web.begin()) {
     Serial.println("web ui failed to start");
+  }
+  // The socket lives with the access point: no AP, nothing to stream to.
+  if (web.enabled() && !stream.begin()) {
+    Serial.println("telemetry stream failed to start");
   }
   showBanner();
   delay(2800);
@@ -428,6 +440,7 @@ void loop() {
   tele.peakHz = (uint16_t)lroundf(snap.peakHz);
   tele.agcAction = agcActionPub;
   tele.agcPeakPct = agcPeakPctPub;
+  tele.unsaved = web.unsaved() ? 1 : 0;
   for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
     tele.spec[b] = (uint8_t)(snap.bands[b] * 100.0f + 0.5f);
   }
@@ -436,6 +449,9 @@ void loop() {
     renderStrip(i, nowMs, dtSec, tele);
   }
   web.setTelemetry(tele);
+  // One small copy per frame; the socket's own task does the sending, so a
+  // phone that stops reading can never pace the LEDs.
+  stream.publish(tele, settings);
 
   display.renderFrame(snap.bands, settings, tele, nowMs);
 

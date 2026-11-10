@@ -16,7 +16,7 @@ class SpectrumAnalyzer {
 public:
   static constexpr size_t kSamples = kFftSamples;
   static constexpr size_t kBins = kSamples / 2; // usable magnitude bins
-  static constexpr size_t kBands = 30;          // log-spaced display bands
+  static constexpr size_t kBands = kDisplayBands; // log-spaced display bands
 
   // Width of the dB window that level()/bandLevel() map onto 0..1. Exposed so
   // callers can undo the microphone gain (level shifts by gainDb / this).

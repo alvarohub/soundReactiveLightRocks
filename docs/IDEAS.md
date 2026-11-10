@@ -188,6 +188,8 @@ something; levels change 30 times a second. They want different transports.
 ### What to do instead, in order of cost/benefit
 
 1. **WebSocket push of a small binary telemetry frame (the real answer).**
+   *Implemented 2026-11-10 — see `src/telemetry.h` and SPEC §13. The rest of this
+   entry is kept as the reasoning that led to it.*
    `esp_http_server` (which `WebServer` wraps) has `CONFIG_HTTPD_WS_SUPPORT` and
    `httpd_ws_send_frame`; `ESPAsyncWebServer` has a simpler API. Push at 20-30 Hz
    a frame of ~70 bytes:

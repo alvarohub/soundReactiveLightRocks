@@ -1208,6 +1208,36 @@ in `docs/IDEAS.md`). Until then, the cheap wins inside the current design are:
 cache the JSON and rebuild only on change, and split settings from telemetry so a
 poll does not carry 3 KB of parameters nobody is touching.
 
+## 2026-11-10 (evening) — Real-time telemetry: push instead of poll
+
+The UI trailed reality by about a second because the board computed levels 31
+times a second and the phone *asked* for a 3.9 KB JSON document every 600 ms. Now:
+
+* **`ws://<board>:81/ws`** pushes a **91-byte binary frame at 25 Hz** from its own
+  task (priority 1). `publish()` from the render loop is a 100-byte memcpy under a
+  critical section, so a slow phone can never pace the LEDs; sends are bounded by
+  `send_wait_timeout` and a client that stops reading is dropped.
+* **`/api/state` is settings only** - no levels, no spectrum - and is polled every
+  2 s instead of 600 ms. It carries `wsPort` so the page never hardcodes a port.
+* **`/api/telemetry`** serves the identical frame for clients that cannot open a
+  socket; the page falls back to 4 Hz polling and says so with an amber badge.
+* The page splits `apply()` (settings, rare) from `paintTelemetry()` (25 Hz, touches
+  only meters/canvas/text, via a `setText()` that skips identical values).
+
+Frame: version, flags, seq, level, dBFS, peak Hz, gain, AGC peak/action, per-strip
+brightness, then per (strip,layer) level / pulse / BPM / confidence / active count,
+then 30 spectrum bands.
+
+Verified against a mock that speaks the handshake: live at ~22-25 fps with zero
+HTTP telemetry requests; fallback at 4 fps with `wsPort: 0`; a server-side socket
+drop recovered in about a second with the fallback covering the gap; 15-second soak
+with no JS heap growth and no layout drift while writes were in flight.
+
+Two traps worth remembering: the project file `stream.h` collided with the Arduino
+core's `Stream.h` on a case-insensitive filesystem (renamed to `telemetry.*`), and
+a bad splice during the refactor deleted eight page functions - `git show` of the
+previous commit is how they came back.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:

@@ -461,6 +461,23 @@ it when the slider is released.
   same gesture. Colour and softness live in the **Display** card below.
 * **Layer tabs are painted with the layer's colour** (filled when selected, dimmed
   when the layer is powered off), so a beam is recognisable without reading titles.
+* **Two channels, on purpose.** Live numbers (levels, dBFS, peak, per-layer
+  pulses, tempi, the spectrum) are pushed as one **91-byte binary frame at ~25 Hz
+  over a WebSocket** on its own port; settings travel as JSON and are fetched
+  rarely. Mixing them was what made the UI trail reality by about a second.
+* The WebSocket lives at `ws://<board>:81/ws`. If it cannot be established the page
+  fetches the identical frame from `GET /api/telemetry` four times a second, so the
+  UI degrades in smoothness, never in correctness. The header carries a link badge:
+  `live 25 Hz` (green), `polling` (amber), `no link` (red), `idle` (grey, tab hidden).
+* The board tells the page its socket port (`wsPort` in `/api/state`); the page
+  never guesses it.
+* **Writes** are queued, timed out and reconciled against the state (see below):
+  one request in flight, exponential backoff, and a write is re-sent until the
+  board's state agrees. Controls with a write in flight are never overwritten by a
+  read.
+* The page pauses both channels when the tab is hidden and resumes on return.
+* **Layer tabs are painted with the layer's colour** (filled when selected, dimmed
+  when the layer is powered off), so a beam is recognisable without reading titles.
 * The page keeps **one request in flight at a time** — the board serves one socket —
   and every request has a 2.5 s deadline. Each write is also remembered as a
   *desire*: a state read clears it when the board agrees and **re-queues** it when it
@@ -506,7 +523,9 @@ it when the slider is released.
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | The control page |
-| GET | `/api/state` | Full state + telemetry + preset availability as JSON |
+| GET | `/api/state` | **Settings** (+ preset summaries, `wsPort`) as JSON. Polled rarely: live values are not here |
+| GET | `/api/telemetry` | The live frame, 91 bytes, `application/octet-stream` (fallback for the socket) |
+| WS | `:81/ws` | The same frame pushed at ~25 Hz |
 | POST | `/api/params?strip=<p>&<key>=<value>` | Change the **physical** strip (`ledCount`, `brightnessPct`, `layerCount`, `solo`) |
 | POST | `/api/params?strip=<p>&layerAdd=<n>` | Append a fresh layer, switched off (the value is ignored; no-op at 4) |
 | POST | `/api/params?strip=<p>&layerRemove=<l>` | Delete layer `l` and compact the rest (no-op at 1) |
@@ -568,3 +587,30 @@ a container is readable at a glance; `BtnB` moves to the other strip.
 * No OTA updates.
 * No per-blob colour variation, no hue animation along the strip.
 * No audio recording or playback — the microphone is read-only, one frame at a time.
+
+## 13. Live telemetry frame
+
+Fixed layout, little-endian, version 1, 91 bytes (`src/telemetry.h` is the
+authority; the page decodes by offset).
+
+| off | size | field |
+|-----|------|-------|
+| 0 | 1 | version (1) |
+| 1 | 1 | flags: bit0 AGC on, bit1 settings unsaved |
+| 2 | 2 | sequence, wraps (the page uses it to spot a stalled link) |
+| 4 | 1 | broadband level, % |
+| 5 | 1 | dBFS, signed |
+| 6 | 2 | peak frequency, Hz |
+| 8 | 1 | mic gain, dB, signed |
+| 9 | 1 | AGC peak, % |
+| 10 | 1 | AGC action: −1 lower, 0 idle, 1 raise, 2 holding |
+| 11 | 2 | per-strip output brightness, % |
+| 13 | 8 | per (strip, layer): band level, % |
+| 21 | 8 | ... beat pulse, % |
+| 29 | 16 | ... detected BPM, u16 |
+| 45 | 8 | ... beat confidence, % |
+| 53 | 8 | ... active effects, count |
+| 61 | 30 | spectrum bands, % |
+
+Why 25 Hz: the analyser produces a block every 32 ms (~31 Hz), so anything faster
+repeats numbers, and 25 Hz is 24× less traffic than the JSON it replaced.

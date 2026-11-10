@@ -20,7 +20,8 @@ const char kPage[] PROGMEM = R"PAGE(<!doctype html>
 /* Right 1/6 of the viewport (16.7vw) is kept empty as a safe thumb-scroll gutter. */
 body{margin:0;padding:14px 16.7vw 28px 12px;max-width:640px;background:#0f1115;color:#e6edf3;font:16px/1.45 system-ui,-apple-system,sans-serif;border-right:1px dashed #21262e}
 h1{margin:0 0 10px;font-size:1.15rem;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-h1 span{font-size:.72rem;color:#8b949e;font-weight:400}
+h1 span{font-size:.72rem;color:#8b949e;font-weight:400;display:flex;gap:8px;align-items:center;justify-content:flex-end}
+.linkdot{font-style:normal;font-size:.62rem;font-weight:700;color:#0f1115;background:#484f58;border-radius:8px;padding:2px 7px;letter-spacing:.03em}
 .padopen{width:100%;padding:12px 14px;margin-bottom:10px;border-radius:12px;border:2px solid #58a6ff;background:linear-gradient(135deg,#16233a,#171b21);color:#f0f6fc;font-size:1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:pointer;touch-action:manipulation}
 .padopen small{font-weight:500;font-size:.76rem;color:#8b949e}
 .card{background:#171b21;border:1px solid #262c36;border-radius:12px;padding:12px 14px;margin-bottom:10px}
@@ -137,7 +138,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 </style>
 </head>
 <body>
-<h1>Light Rocks <span id=host></span></h1>
+<h1>Light Rocks <span><i id=link class=linkdot>idle</i> <b id=host></span></h1>
 <button type=button class=padopen id=openpads><span>Full-Screen Effect Pads</span><small>one group per layer &rarr;</small></button>
 <div id=padscreen>
  <div class=padtop>
@@ -978,6 +979,79 @@ function flashMsg(t){
  MSGTMR=setTimeout(function(){MSGTMR=0;if(ST)$('pmsg').textContent=ST.unsaved?'auto-saving…':'auto-saved';},2200);
 }
 
+/* ---- live data: the binary telemetry frame ----
+   Everything that changes continuously arrives in one 83-byte frame, 25 times a
+   second, over a WebSocket; settings arrive as JSON only when they change or
+   after a write. Keeping the two apart is what lets the meters be smooth without
+   re-rendering the page. Offsets match src/telemetry.h. */
+var TEL={seq:0,flags:0,level:0,dbfs:-99,peakHz:0,gain:0,agcPeak:0,agcAct:0,
+         stripBright:[0,0],level2:[],beat:[],bpm:[],conf:[],blobs:[],spec:[]};
+function parseFrame(b){
+ // Per (strip, layer) arrays are indexed i*4+l so the page can look them up flat.
+ var o=0, t={};
+ t.ver=b[0]; t.flags=b[1];
+ t.seq=b[2]|(b[3]<<8); o=4;
+ t.level=b[o++]; t.dbfs=(b[o++]<<24)>>24; t.peakHz=b[o]|(b[o+1]<<8); o+=2;
+ t.gain=(b[o++]<<24)>>24; t.agcPeak=b[o++];
+ t.agcAct=(b[o++]<<24)>>24;
+ t.stripBright=[b[o],b[o+1]]; o+=2;
+ t.level2=[];for(var i=0;i<8;i++)t.level2.push(b[o++]);
+ t.beat=[];for(var i=0;i<8;i++)t.beat.push(b[o++]);
+ t.bpm=[];for(var i=0;i<8;i++){t.bpm.push(b[o]|(b[o+1]<<8));o+=2;}
+ t.conf=[];for(var i=0;i<8;i++)t.conf.push(b[o++]);
+ t.blobs=[];for(var i=0;i<8;i++)t.blobs.push(b[o++]);
+ t.spec=[];for(var i=0;i<30;i++)t.spec.push(b[o++]);
+ t.agc=!!(t.flags&1); t.unsaved=!!(t.flags&2);
+ return t;
+}
+
+/* Paints the live half of the UI. Cheap on purpose: text is only written when it
+   changed, so a 25 Hz update costs a few style writes rather than a DOM rebuild. */
+function paintTelemetry(){
+ if(!ST||!BUILT)return;
+ var t=TEL;
+ var c=cur(),p=phys();
+ if(c&&p){
+  var col=colOf(c);
+  var lvl=(TRIG&TB.beat)?Math.max(t.beat[S*4+L]||0,t.level2[S*4+L]||0):(t.level2[S*4+L]||0);
+  $('mb0').style.background=col;
+  $('mb0').style.width=lvl+'%';
+  $('mu0').style.left='calc('+c.thresholdPct+'% - 2px)';
+  var bpm=t.bpm[S*4+L]||0, conf=t.conf[S*4+L]||0, beat=t.beat[S*4+L]||0;
+  var line='lvl '+(t.level2[S*4+L]||0)+'%';
+  if(TRIG&TB.beat)line+=' \u00b7 '+(bpm>0?(bpm+' BPM '+conf+'%'):'listening')+' \u00b7 beat '+beat+'%';
+  line+=' \u00b7 '+(t.blobs[S*4+L]||0)+' active';
+  setText($('mt0'),line);
+ }
+ // pads
+ for(var q=0;q<ST.strips.length;q++){
+  var sq=ST.strips[q];
+  for(var lq=0;lq<sq.layerCount;lq++){
+   var g=$('pgrp'+q+'_'+lq);
+   if(!g)continue;
+   var out=Math.max(t.level2[q*4+lq]||0, t.beat[q*4+lq]||0);
+   setText($('pgst'+q+'_'+lq),layModeName(sq.layers[lq])+' \u00b7 '+(t.blobs[q*4+lq]||0)+' \u00b7 lvl '+out+'%');
+   $('pgb'+q+'_'+lq).style.width=out+'%';
+  }
+ }
+ // microphone
+ setText($('sLvl'),t.level+'%');
+ setText($('sDb'),t.dbfs+' dBFS');
+ setText($('sPk'),t.peakHz+' Hz');
+ if($('sAgcPk'))setText($('sAgcPk'),t.agcPeak+'%');
+ drawDbScale();
+ explainAgc();
+ drawBandMap();
+ if(!MSGTMR)setText($('pmsg'),t.unsaved?'auto-saving\u2026':'auto-saved');
+ if($('agcbtn')&&!inFlight(0,null,'agc')){AGC=t.agc?1:0;setAgc();}
+ $('gainDbv').textContent=(t.gain>0?'+':'')+t.gain+' dB';
+}
+/* Blink-free text update: touching textContent every frame would re-layout. */
+function setText(el,v){
+ if(!el||v===null||v===undefined)return;
+ if(el.textContent!==v)el.textContent=v;
+}
+
 function live(){
  if(!ST)return;
  for(var i=0;i<ST.strips.length;i++){
@@ -987,42 +1061,22 @@ function live(){
  }
  setLayerSel();
  var c=cur(),p=phys();
- if(c){
-  var col=colOf(c);
-  $('mb0').style.background=col;
-  var lvl=(TRIG&TB.beat)?Math.max(c.beatPct||0,c.levelPct||0):c.levelPct;
-  $('mb0').style.width=lvl+'%';
-  $('mu0').style.left='calc('+c.thresholdPct+'% - 2px)';
-  $('mt0').textContent='lvl '+c.levelPct+'%'
-   +((TRIG&TB.beat)?(' · '+(c.bpm>0?(c.bpm+' BPM '+(c.beatConf||0)+'%'):'listening')+' · beat '+(c.beatPct||0)+'%'):'')
-   +' · '+c.blobs+' active';
+ if(c&&p){
   CALIB=p.calib?1:0;setCalib();setSolo();
+  $('mb0').style.background=colOf(c);
  }
  for(var q=0;q<ST.strips.length;q++){
   var sq=ST.strips[q];
   for(var lq=0;lq<sq.layerCount;lq++){
-   var ly=sq.layers[lq],g=$('pgrp'+q+'_'+lq);
-   if(!g)continue;
-   g.style.setProperty('--c','#'+(ly.color||'808080'));
-   var stx=layModeName(ly)+' · out '+(ly.brightPct||0)+'%';
-   $('pgst'+q+'_'+lq).textContent=stx;
-   $('pgb'+q+'_'+lq).style.width=(ly.brightPct||0)+'%';
+   var g=$('pgrp'+q+'_'+lq);
+   if(g)g.style.setProperty('--c','#'+(sq.layers[lq].color||'808080'));
   }
  }
- if(ST.ssid)$('host').textContent=ST.ssid+' · '+location.host+(ST.ver?(' · '+ST.ver):'');
- $('sLvl').textContent=ST.levelPct+'%';
- $('sDb').textContent=ST.dbfs+' dBFS';
- $('sPk').textContent=ST.peakHz+' Hz';
- if($('sAgcPk'))$('sAgcPk').textContent=(ST.agcPeakPct!==undefined?ST.agcPeakPct+'%':'-');
- // These follow the board on every read, not just on a full refill: they are
- // explanations of what is happening right now.
- drawDbScale();
- explainAgc();
- drawBandMap();
- if($('agcbtn')&&!inFlight(0,null,'agc')){AGC=ST.agc?1:0;setAgc();}
- if(!MSGTMR)$('pmsg').textContent=ST.unsaved?'auto-saving…':'auto-saved';
+ if(ST.ssid)$('host').textContent=ST.ssid+' \u00b7 '+location.host+(ST.ver?(' \u00b7 '+ST.ver):'');
  $('gainDbv').textContent=(ST.gainDb>0?'+':'')+ST.gainDb+' dB';
  if($('slots')&&(ST.presets||[]).length)buildSlots();
+ paintTelemetry();
+ ensureLink();
 }
 function layModeName(l){
  if(!l)return '-';
@@ -1054,6 +1108,10 @@ var STRUCT='';
 function apply(s){
  ST=s;
  reconcile(s);
+ // The live link's port comes from the board; learn it once and connect. This
+ // happens at the end of apply(), after SEEDED, because the link must not start
+ // against a page whose controls are not built yet.
+ if(!WS_PORT&&s.wsPort){WS_PORT=s.wsPort;}
  if(!BUILT&&ST.strips.length){
   BUILT=true;
   buildSelectors(ST.strips.length);
@@ -1114,7 +1172,7 @@ function setAgc(){
    it is obvious at a glance whether the gain has room to help. */
 function drawDbScale(){
  if(!$('dbnow'))return;
- var lo=-55, hi=-18, db=ST&&ST.dbfs!==undefined?ST.dbfs:lo;
+ var lo=-55, hi=-18, db=TEL&&TEL.dbfs!==undefined?TEL.dbfs:lo;
  var pct=Math.round(Math.max(0,Math.min(1,(db-lo)/(hi-lo)))*100);
  $('dbnow').style.left=pct+'%';
  var z='quiet room';
@@ -1126,7 +1184,7 @@ function explainAgc(){
  var h=$('agcwhat');
  if(!h)return;
  if(!AGC){h.textContent='';return;}
- var pk=ST.agcPeakPct||0, act=ST.agcAction, g=ST.gainDb;
+ var pk=TEL.agcPeak||0, act=TEL.agcAct, g=TEL.gain;
  var t;
  if(act===1)t='raising the gain: peaks only reach '+pk+'% of the range';
  else if(act===-1)t='lowering the gain: peaks reach '+pk+'%, too close to clipping';
@@ -1185,7 +1243,7 @@ function drawBandMap(){
  });
 
  // live spectrum silhouette, faint, behind everything
- var spec=ST.spec||[];
+ var spec=TEL.spec||[];
  if(spec.length){
   ctx.beginPath();ctx.moveTo(0,h-padB);
   for(var i=0;i<spec.length;i++){
@@ -1210,7 +1268,7 @@ function drawBandMap(){
   ctx.fillStyle=col;
   ctx.fillRect(x0,y+2,x1-x0,rowH-5);
   // how much of that band is there right now
-  var lvl=Math.max(0,Math.min(100,ly.levelPct||0));
+  var lvl=Math.max(0,Math.min(100,TEL.level2[S*4+l]||0));
   ctx.globalAlpha=on?0.85:0.25;
   ctx.fillRect(x0,y+2*sc,Math.round((x1-x0)*lvl/100),rowH-5*sc);
   // edges + centre
@@ -1243,7 +1301,7 @@ function drawBandMap(){
  });
  $('bmlbl').innerHTML=lbl;
  $('bmhint').textContent=p.layerCount+' layer'+(p.layerCount>1?'s':'')
-  +' \u00b7 '+(ST.levelPct||0)+'% input now';
+  +' \u00b7 '+(TEL.level||0)+'% input now';
 }
 /* ---- presets ----
    A slot chip shows what the slot holds (its layer colours), so it is obvious
@@ -1339,6 +1397,122 @@ $('rst').onclick=function(){
  }
  arm('rst','Tap again: reset live');
 };
+
+/* ---- live link ----
+   Preferred: a WebSocket on port 81 pushes an 83/91-byte frame at 25 Hz. If that
+   cannot be established (older firmware, a network that blocks it), the page
+   falls back to fetching the very same frame from /api/telemetry, four times a
+   second. Both paths end in the identical decode, so nothing else has to care
+   which one is in use. */
+var WS=null, WS_LIVE=false, WS_TRY=0, WS_TIMER=0, FB_TIMER=0, LINK='off';
+var WS_PORT=0; // learned from the board's state
+var TEL_MIN=83; // prefix of the frame the page can decode
+var lastFrameAt=0;
+
+function setLink(kind){
+ if(kind===LINK)return;
+ LINK=kind;
+ var d=$('link');
+ if(!d)return;
+ var map={live:['#3fb950','live 25 Hz'],poll:['#d29922','polling'],
+          lost:['#f85149','no link'],off:['#484f58','idle']};
+ var m=map[kind]||map.off;
+ d.style.background=m[0];
+ d.textContent=m[1];
+ d.title=kind==='live'?'WebSocket on port '+WS_PORT
+   :(kind==='poll'?'WebSocket unavailable: using the slower HTTP fallback':'');
+}
+
+function applyFrame(buf){
+ var b=new Uint8Array(buf);
+ if(b.length<TEL_MIN||b[0]!==1)return;
+ TEL=parseFrame(b);
+ lastFrameAt=Date.now();
+ paintTelemetry();
+}
+
+function stopFallback(){
+ if(FB_TIMER){clearTimeout(FB_TIMER);FB_TIMER=0;}
+}
+function startFallback(){
+ if(FB_TIMER||document.hidden)return;
+ var tick=function(){
+  FB_TIMER=0;
+  if(document.hidden)return;
+  fetch('/api/telemetry',abortAfter(1500)).then(function(r){
+   if(!r.ok)throw 0;
+   return r.arrayBuffer();
+  }).then(function(buf){
+   applyFrame(buf);
+   if(!WS_LIVE)setLink('poll');
+  }).catch(function(){
+   if(!WS_LIVE)setLink('lost');
+  }).then(function(){
+   if(!WS_LIVE&&!document.hidden)FB_TIMER=setTimeout(tick,250);
+  });
+ };
+ FB_TIMER=setTimeout(tick,60);
+}
+
+function wsClose(){
+ WS_LIVE=false;
+ if(WS){try{WS.onclose=null;WS.close();}catch(e){}WS=null;}
+ stopFallback();
+}
+/* Start whichever live link is possible, once, and only when there is nothing
+   running: a socket, a healthy fallback, or a pending attempt. */
+function ensureLink(){
+ if(document.hidden||WS||WS_LIVE||FB_TIMER)return;
+ if(!SEEDED)return; // wait for the first state read: it carries the port
+ if(!WS_PORT){startFallback();setLink('poll');return;} // no socket advertised
+ connectWs();
+}
+function connectWs(){
+ if(document.hidden||WS)return;
+ if(!WS_PORT){startFallback();setLink('poll');return;}
+ var url='ws://'+location.hostname+':'+WS_PORT+'/ws';
+ var sock;
+ try{sock=new WebSocket(url);}catch(e){startFallback();setLink('poll');return;}
+ sock.binaryType='arraybuffer';
+ WS=sock;
+ sock.onopen=function(){
+  WS_LIVE=true;WS_TRY=0;setLink('live');stopFallback();
+ };
+ sock.onmessage=function(ev){
+  if(ev.data instanceof ArrayBuffer){applyFrame(ev.data);}
+  if(!WS_LIVE){WS_LIVE=true;setLink('live');stopFallback();}
+ };
+ sock.onclose=function(){
+  WS=null;WS_LIVE=false;
+  if(document.hidden)return;
+  setLink('lost');
+  startFallback();
+  WS_TRY++;
+  var back=Math.min(8000,400*Math.pow(2,Math.min(WS_TRY,4)));
+  if(WS_TIMER)clearTimeout(WS_TIMER);
+  WS_TIMER=setTimeout(function(){WS_TIMER=0;connectWs();},back);
+ };
+ sock.onerror=function(){try{sock.close();}catch(e){}};
+}
+
+/* Nothing arriving for two seconds means the link is stale even if the socket
+   still claims to be open; treat it as lost so the fallback can take over. */
+function linkWatchdog(){
+ if(LINK==='live'&&Date.now()-lastFrameAt>2500){
+  // Half-open socket: keep the fallback alive so the page stays truthful, and
+  // try a fresh connection in the background.
+  setLink('lost');
+  wsClose();
+  startFallback();
+  if(!WS_TIMER)WS_TIMER=setTimeout(function(){WS_TIMER=0;ensureLink();},1200);
+ }
+}
+
+document.addEventListener('visibilitychange',function(){
+ if(document.hidden){wsClose();stopFallback();setLink('off');}
+ else{ensureLink();} // whichever link applies: socket if possible, else polling
+});
+
 function poll(){
  dragWatchdog();
  if(busySocket()||editing())return;
@@ -1351,7 +1525,12 @@ function poll(){
   .catch(function(){POLL_BUSY=false;flashMsg('sync lost - reload the page');});
 }
 fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
-setInterval(poll,600);
+// Settings: rarely, they change only when someone touches something. The live
+// numbers come from the socket.
+setInterval(poll,2000);
+setInterval(linkWatchdog,500);
+// The socket port comes with the first state read (apply() connects), so the
+// fallback only starts if that read says there is no socket to be had.
 </script>
 </body>
 </html>)PAGE";
@@ -1428,6 +1607,7 @@ void WebUi::bindRoutes() {
   server_.on("/", [this] { handleRoot(); });
   server_.on("/favicon.ico", [this] { server_.send(204, "text/plain", ""); });
   server_.on("/api/state", [this] { handleState(); });
+  server_.on("/api/telemetry", [this] { handleTelemetry(); });
   server_.on("/api/params", HTTP_POST, [this] { handleParams(); });
   server_.on("/api/tap", HTTP_POST, [this] { handleTap(); });
   server_.on("/api/preset", HTTP_POST, [this] { handlePreset(); });
@@ -1463,6 +1643,10 @@ String WebUi::stateJson() const {
 
   appendf(buf, sizeof(buf), n, "{\"ssid\":\"%s\",\"ver\":\"%s\",", kSsid,
           kFirmwareVersion);
+  // The page must not hardcode this: the port is the board's to decide, and a
+  // page that guesses wrong silently loses the live link.
+  kvu("wsPort", stream_ != nullptr && stream_->running() ? stream_->port() : 0u);
+  comma();
   kvd("gainDb", (int)settings_->gainDb);
   comma();
   kvu("agc", (unsigned)settings_->agc);
@@ -1470,15 +1654,12 @@ String WebUi::stateJson() const {
 
   for (size_t i = 0; i < kStripCount; i++) {
     const PhysicalStripSettings &p = settings_->phys[i];
-    const PhysicalTelemetry &pt = tele_.strip[i];
     appendf(buf, sizeof(buf), n, "%s{", i == 0 ? "" : ",");
     kvu("ledCount", p.ledCount);
     comma();
     kvu("brightnessPct", p.brightnessPct);
     comma();
     kvu("layerCount", p.layerCount);
-    comma();
-    kvu("brightPct", pt.brightPct);
     comma();
     kvd("solo", (int)soloLayer(i));
     comma();
@@ -1487,7 +1668,6 @@ String WebUi::stateJson() const {
 
     for (size_t l = 0; l < kMaxLayersPerStrip; l++) {
       const LayerSettings &s = settings_->layer[i][l];
-      const LayerTelemetry &lt = pt.layer[l];
       appendf(buf, sizeof(buf), n, "%s{", l == 0 ? "" : ",");
       kvu("triggers", s.triggers);
       comma();
@@ -1530,45 +1710,23 @@ String WebUi::stateJson() const {
       kvu("loop", s.loop);
       appendf(buf, sizeof(buf), n, ",\"color\":\"%02x%02x%02x\"",
               (unsigned)s.r, (unsigned)s.g, (unsigned)s.b);
-      comma();
-      kvu("levelPct", lt.levelPct);
-      comma();
-      kvu("brightPct", lt.brightPct);
-      comma();
-      kvu("blobs", lt.blobs);
-      comma();
-      kvu("beatPct", lt.beatPct);
-      comma();
-      kvu("bpm", lt.bpm);
-      comma();
-      kvu("beatConf", lt.beatConf);
       appendf(buf, sizeof(buf), n, "}");
     }
     appendf(buf, sizeof(buf), n, "]}");
   }
 
+  // Settings only. Everything that changes continuously - levels, dBFS, the
+  // spectrum, per-layer pulses and tempi - travels in the telemetry frame
+  // (WebSocket, or /api/telemetry), which is why this document can be polled
+  // rarely and, in future, cached and rebuilt only when it changes.
   appendf(buf, sizeof(buf), n, "],");
-  kvu("levelPct", tele_.levelPct);
-  comma();
-  kvd("dbfs", (int)tele_.dbfs);
-  comma();
-  kvu("peakHz", tele_.peakHz);
-  comma();
-  kvd("agcAction", (int)tele_.agcAction);
-  comma();
-  kvu("agcPeakPct", tele_.agcPeakPct);
-  comma();
   kvu("unsaved", unsaved_ ? 1u : 0u);
-  appendf(buf, sizeof(buf), n, ",\"spec\":[");
-  for (size_t b = 0; b < SpectrumAnalyzer::kBands; b++) {
-    appendf(buf, sizeof(buf), n, "%s%u", b == 0 ? "" : ",",
-            (unsigned)tele_.spec[b]);
-  }
-  appendf(buf, sizeof(buf), n, "],\"presets\":[");
+  appendf(buf, sizeof(buf), n, ",\"presets\":[");
   for (uint8_t i = 0; i < SettingsStore::kPresetCount; i++) {
     const PresetSummary &ps = preset_[i];
-    appendf(buf, sizeof(buf), n, "%s{\"has\":%u,\"layers\":%u,\"cols\":\"",
-            i == 0 ? "" : ",", ps.valid ? 1u : 0u, (unsigned)ps.layers);
+    appendf(buf, sizeof(buf), n,
+            "%s{\"has\":%u,\"layers\":%u,\"cols\":\"", i == 0 ? "" : ",",
+            ps.valid ? 1u : 0u, (unsigned)ps.layers);
     for (uint8_t c = 0; c < ps.colorCount; c++) {
       appendf(buf, sizeof(buf), n, "%s%02x%02x%02x", c == 0 ? "" : " ",
               (unsigned)ps.r[c], (unsigned)ps.g[c], (unsigned)ps.b[c]);
@@ -1577,12 +1735,27 @@ String WebUi::stateJson() const {
   }
   appendf(buf, sizeof(buf), n, "]}");
 
+  // Telemetry travels in a fixed-size binary frame. Keep the two in step:
+  // src/telemetry.h lists the offsets.
   return String(buf);
 }
 
 void WebUi::handleRoot() {
   server_.sendHeader("Cache-Control", "no-store");
   server_.send_P(200, "text/html", kPage);
+}
+
+// The same binary frame the WebSocket pushes, for when a client cannot use one.
+void WebUi::handleTelemetry() {
+  if (stream_ == nullptr) {
+    server_.send(503, "text/plain", "");
+    return;
+  }
+  static uint8_t frame[TelemetryStream::kFrameSize];
+  const size_t n = stream_->buildFrame(frame, sizeof(frame));
+  server_.sendHeader("Cache-Control", "no-store");
+  server_.send_P(200, "application/octet-stream", (const char *)frame,
+                 n);
 }
 
 void WebUi::handleState() {

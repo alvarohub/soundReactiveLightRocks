@@ -202,14 +202,47 @@ Rows repaint incrementally like the bars: geometry/colour changes redraw the row
 a level change repaints only the delta (and repaints the track, not black, when
 the level falls), and the trigger dot only when it flips.
 
-### Telemetry is polled at 600 ms on purpose, for now (2026-11-10)
-The board computes levels 31 times a second; the phone asks for a 3.9 KB state
-document every 600 ms. That is fine for *settings* and hopeless for *telemetry* -
-it is the reason the UI always trails reality by about a second, and the reason the
-transport had to serialise writes against polls at all. The fix is a WebSocket (or
-SSE, or UDP) push of a ~70-byte binary telemetry frame at 20-30 Hz with HTTP kept
-for writes; see `docs/IDEAS.md` for the frame layout and the ranking. Do that
-before optimising anything else in the UI.
+### Live data is pushed; settings are polled (2026-11-10)
+Two channels, and the split is the whole point:
+
+| channel | what | how | why |
+|---|---|---|---|
+| `ws://<board>:81/ws` | 91-byte binary frame, ~25 Hz | pushed by its own task | levels change 30×/s |
+| `GET /api/state` | settings JSON | on demand + every 2 s | settings change when a human touches them |
+| `GET /api/telemetry` | the same frame | 4 Hz fallback | if the socket cannot be established |
+
+Invariants that make it hold together:
+
+* **The frame layout is a contract.** `src/telemetry.h` documents the offsets and
+  the page decodes by them; the version byte is checked on arrival. Change both or
+  neither.
+* **The socket never blocks the render loop.** `publish()` only copies a snapshot
+  under a critical section; a dedicated task (priority 1, 4 KB stack) builds and
+  sends. Sends are bounded by `send_wait_timeout`, and a client that stops reading
+  is dropped. A stale phone cannot stall the LEDs.
+* **The page must keep working with no socket at all.** Same decode, same paint,
+  four times a second from `/api/telemetry`. A green "live 25 Hz" badge, amber
+  "polling", red "no link" - the user always knows what they are looking at.
+* **The port is negotiated, not assumed.** `/api/state` carries `wsPort`; the page
+  connects to that. Never hardcode it in the page.
+* `paintTelemetry()` is separate from `apply()`: 25 Hz of frames must touch only
+  meters, canvas and a few text nodes, never inputs or the DOM structure. Text
+  writes go through `setText()`, which skips identical values to avoid re-layout.
+* The page pauses both channels while the tab is hidden.
+
+**Naming trap (cost 40 minutes):** do not name a project header `stream.h`. The
+Arduino core has `Stream.h`; on macOS's case-insensitive filesystem
+`#include "Stream.h"` from `Udp.h` resolved to *our* file, which then included
+`settings.h` in the middle of `settings.h` and broke everything with confusing
+"Telemetry does not name a type" errors. The same hazard exists for any name the
+core uses with a different case (`settings.h` vs the core's `Settings.h` is still
+latent). If a core include suddenly pulls in project types, suspect the filename
+before anything else.
+
+**Testing without hardware:** a ~120-line Python mock that speaks the WebSocket
+handshake is enough to exercise live, fallback (`wsPort: 0`), reconnect and drop
+paths. Give the mock an endpoint that closes the socket and verify the page
+recovers by itself.
 
 ### Presets: slots you can read, destructive actions that ask twice (2026-11-10)
 Six big `Save n` / `Load n` buttons were unreadable: nothing said whether a slot
