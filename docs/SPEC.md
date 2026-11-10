@@ -453,17 +453,23 @@ it when the slider is released.
   layers. The layer cards below keep working normally.
 * An inline **Canvas Colour Wheel** + brightness slider + current colour square
   streams colour changes in real time while dragging.
-* Strip-level controls sit **directly under the Strip 1 / Strip 2 buttons**, before
-  the layer list: `Strip brightness`, then `Light layers inside`.
+* Everything **physical** lives in the strip card, under the Strip 1 / Strip 2
+  buttons: `Strip brightness`, `LEDs on this strip` (slider + −10/←/→/+10),
+  `Calibrate`, then the layer list. There is no separate calibration card.
 * The per-layer pair `Layer power` + `Layer intensity` closes the strip card, right
   under the layer title, so switching a layer off and setting its weight are the
   same gesture. Colour and softness live in the **Display** card below.
 * **Layer tabs are painted with the layer's colour** (filled when selected, dimmed
   when the layer is powered off), so a beam is recognisable without reading titles.
 * The page keeps **one request in flight at a time** — the board serves one socket —
-  and every request has a 2.5 s deadline, so a dropped socket can never wedge the
-  UI. While idle the page re-reads `/api/state` every 600 ms and re-fills the
-  controls from it, so the screen always converges on what the board holds.
+  and every request has a 2.5 s deadline. Each write is also remembered as a
+  *desire*: a state read clears it when the board agrees and **re-queues** it when it
+  does not, so a dropped request costs a retry rather than the edit. Controls with a
+  write in flight are never overwritten by a read. While idle the page re-reads
+  `/api/state` every 600 ms, so the screen converges on what the board holds.
+* The microphone card shows a **room-level meter** on the analyser's own scale
+  (−55…−18 dBFS) with quiet / good / hot zones, and one sentence saying what the AGC
+  is doing (`raising`, `holding`, `lowering` or `idle`) and on what peak level.
 * Live readouts (`lvl …%, … active`, the layer subtitle, the pad group headers) are
   single-line and truncated rather than wrapped, so growing numbers never reflow
   the page.

@@ -202,6 +202,29 @@ Rows repaint incrementally like the bars: geometry/colour changes redraw the row
 a level change repaints only the delta (and repaints the track, not black, when
 the level falls), and the trigger dot only when it flips.
 
+### Writes are queued AND reconciled; the page never assumes one landed (2026-11-10)
+Dropping the lost-socket wedge was not enough. A write could still be lost and the
+next state read would quietly put the board's old value back — the threshold marker
+was the visible casualty ("cannot move the threshold, other things work, reload
+fixes it"). Fire-and-forget is simply the wrong model for a link that loses writes.
+
+* every write is recorded in `DES` (scope = strip + layer + key) *and* queued in `Q`
+* one request in flight, with an `AbortController` deadline; failures back off
+  exponentially (150 ms → 2 s, 10 tries ≈ 10 s) so an unreachable board is retried
+  over seconds instead of burning every attempt in a burst
+* every `/api/state` read is truth: `reconcile()` deletes a desire the board already
+  satisfies and re-queues one it does not
+* `fillInputs()` **skips any control whose write is still in flight**, so a stale
+  read can never overwrite what was just set
+* `INFLIGHT` has a 3.5 s watchdog, and the drag flags (`WDRAG`/`TDRAG`/`DRAGGING`)
+  are cleared by a window-level `pointerup`/`pointercancel`/`blur` plus a 4 s
+  watchdog. A latched drag used to stop polling until a reload.
+
+**Test it with a mock that drops writes** (`/__drop?rate=0.5`): interleave threshold
+drags, sliders and chips, then check page == board. A mock that answers every
+request hides exactly this class of bug. Also make the mock HTTP/1.0: a keep-alive
+mock leaves the browser waiting and looks like a firmware stall.
+
 ### The page must survive a dropped socket (2026-11-08)
 The board's web server serves **one socket at a time**, but the page could open
 two: `poll()` only checked `INFLIGHT` and `flush()` only checked `INFLIGHT`, so a

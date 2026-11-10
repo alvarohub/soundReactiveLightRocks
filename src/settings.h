@@ -297,6 +297,11 @@ struct Telemetry {
   uint8_t levelPct = 0; // broadband input level
   int16_t dbfs = -99;
   uint16_t peakHz = 0;
+  // What the automatic gain control is doing, so the phone can explain it:
+  // -1 lowering, 0 holding (or idle), +1 raising. agcPeakPct is the peak the
+  // decision was based on, in the same 0..100 scale as levelPct.
+  int8_t agcAction = 0;
+  uint8_t agcPeakPct = 0;
   PhysicalTelemetry strip[kStripCount];
 };
 

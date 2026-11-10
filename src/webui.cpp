@@ -61,6 +61,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 .chip.on{background:#17301e;border-color:#2ea043;color:#7ee787}
 .chip:disabled{opacity:.35}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+/* Environment dB scale: quiet / good / hot, with a live needle. -55..-18 dBFS is
+   the range the analyser maps to 0..100 %, so the zones are drawn from that. */
+.dbscale{position:relative;height:22px;margin:6px 0 2px;border-radius:6px;overflow:hidden;background:#21262e;border:1px solid #30363d}
+.dbscale span{position:absolute;top:0;bottom:0;display:block}
+.dbscale .zq{left:0;width:40%;background:#1d2733}
+.dbscale .zg{left:40%;width:40%;background:#17301e}
+.dbscale .zh{left:80%;width:20%;background:#2b1d1d}
+.dbscale u{position:absolute;top:-2px;bottom:-2px;width:4px;margin-left:-2px;background:#f0f6fc;box-shadow:0 0 6px rgba(0,0,0,.9);border-radius:2px}
 .stats div{background:#21262e;border-radius:9px;padding:8px 4px;text-align:center}
 .stats span{display:block;font-size:.68rem;letter-spacing:.04em;color:#8b949e;text-transform:uppercase}
 .stats b{font-size:.95rem;font-variant-numeric:tabular-nums}
@@ -121,16 +129,20 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 
 <div class=card>
 <div class=ptitle style="border-left-color:#3fb950">Microphone (global)<small>shared input for every layer</small></div>
-<div class="row first"><span>Microphone gain</span><b id=gainDbv>-</b></div>
+<div class="row first"><span>Room level (before any gain)</span><b id=sDb>-</b></div>
+<div class=dbscale><u id=dbnow></u><span class=zq></span><span class=zg></span><span class=zh></span></div>
+<div class=hint id=dbhint>the microphone's own level: the green band is the range that suits the detectors</div>
+<div class="row"><span>Microphone gain</span><b id=gainDbv>-</b></div>
 <div class=rline>
 <input type=range id=gainDb min=-24 max=18 step=3>
 <button type=button id=agcbtn class=tbtn>AGC</button>
 </div>
 <div class=hint id=agchint>negative attenuates: use it when the room is too loud</div>
+<div class=hint id=agcwhat></div>
 <div class=stats>
-<div><span>Broadband</span><b id=sLvl>0%</b></div>
-<div><span>dBFS</span><b id=sDb>-</b></div>
-<div><span>Peak</span><b id=sPk>-</b></div>
+<div><span>Input now</span><b id=sLvl>0%</b></div>
+<div><span>Peak heard</span><b id=sAgcPk>-</b></div>
+<div><span>Peak freq</span><b id=sPk>-</b></div>
 </div>
 </div>
 
@@ -139,6 +151,16 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=seg id=pick></div>
 <div class=row style="margin-top:10px"><span>Strip brightness</span><b id=brightnessPctv>-</b></div>
 <input type=range id=brightnessPct min=1 max=100 step=1>
+<div class=row><span>LEDs on this strip</span><b id=ledCountv>-</b></div>
+<input type=range id=ledCount min=1 max=1000 step=1>
+<div class=rline style="margin-top:6px">
+<button type=button id=lcdec10 class=stepbtn>-10</button>
+<button type=button id=lcdec class=stepbtn>&larr;</button>
+<button type=button id=lcinc class=stepbtn>&rarr;</button>
+<button type=button id=lcinc10 class=stepbtn>+10</button>
+<button type=button id=calbtn class=tbtn style="margin-left:auto">Calibrate</button>
+</div>
+<div class=hint id=calhint>calibrate lights only the end LED while you adjust the count</div>
 <div class="row" style="margin-top:12px"><span>Light layers inside</span><b id=lcv>-</b></div>
 <div class=seg id=layertabs></div>
 <div class=rline style="margin-top:8px">
@@ -154,7 +176,6 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=card id=trigbox></div>
 <div class=card id=dispbox></div>
 <div class=card id=animbox></div>
-<div class=card id=calbox></div>
 
 <div class=card>
 <div class="row first"><span>Presets</span><b id=pmsg></b></div>
@@ -175,8 +196,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 var S=0,L=0,ST=null,BUILT=false,SEEDED=false,TRIG=1,EFF=0,REV=0,LOOP=1,RETRIG=1,CALIB=0,SOLO=-1;
 var TB={thr:1,beat:2,tap:4,accel:8,gyro:16,lfo:32};
 var CUR_COL='#ff6a00',WHEEL_BG=null,WX=76,WY=76,WDRAG=false,TDRAG=-1,MSGTMR=0;
-var INFLIGHT=false,POLL_BUSY=false,LAST=null,PTMR=0,AFTER=null,HOLD_TMRS={},AGC=0;
-var USER_TS=0,RETRY=0;
+var INFLIGHT=false,POLL_BUSY=false,PTMR=0,AFTER=null,HOLD_TMRS={},AGC=0;
+var USER_TS=0,SENT_AT=0,DRAG_TS=0;
+/* Desired writes that the board has not confirmed yet, and the send queue. */
+var DES={},Q=[];
 
 function $(i){return document.getElementById(i);}
 
@@ -196,6 +219,16 @@ function endDrag(){
  if(WDRAG){WDRAG=false;flush();}
  TDRAG=-1;
 }
+/* A gesture whose end never arrived (a scroll claimed the pointer, the page was
+   left mid-drag, the tab lost focus) must not latch: polls stop while a drag is
+   in progress, so a latched flag made the whole page stop updating until a
+   reload. Anything older than a few seconds is stale by definition. */
+function dragWatchdog(){
+ if((WDRAG||TDRAG>=0||DRAGGING>0)&&Date.now()-DRAG_TS>4000){
+  WDRAG=false;DRAGGING=0;TDRAG=-1;
+ }
+}
+document.addEventListener('pointermove',function(){DRAG_TS=Date.now();},true);
 document.addEventListener('pointerup',endDrag,false);
 document.addEventListener('pointercancel',endDrag,false);
 window.addEventListener('blur',endDrag);
@@ -223,12 +256,16 @@ function colOf(layer){return '#'+(layer&&layer.color?layer.color:'808080');}
 function layerCount(){var p=phys();return p?Math.max(1,p.layerCount):1;}
 function nameOf(i){return 'Strip '+(i+1);}
 
-/* ---- one request in flight, latest value wins ---- */
-/* The board's web server serves one socket at a time. Two overlapping requests
-   (a poll landing on top of a slider POST) made it drop the second one, and
-   without a timeout that fetch never settled: INFLIGHT stayed true and the page
-   silently refused to send anything again while the LEDs kept running. Every
-   request now has a deadline, and both flags are cleared whatever happens. */
+/* ---- writes: a queue plus a desired-state map ----
+   The board serves one socket at a time, so a slider drag and a poll can collide
+   and one of them is dropped. A dropped write used to be invisible: the page had
+   already drawn the new value, the next poll overwrote it with the board's old
+   one, and the control looked "stuck" (the threshold marker was the worst case
+   because it is a single tick that jumps back).
+
+   Now every write is also recorded as a desire. The request queue sends them one
+   at a time; a state read clears a desire when the board agrees and re-queues it
+   when it does not. Losing a request costs a retry, not the edit. */
 function abortAfter(ms){
  if(!window.AbortController)return {};
  var ctl=new AbortController();
@@ -236,31 +273,94 @@ function abortAfter(ms){
  return {signal:ctl.signal};
 }
 function busySocket(){return INFLIGHT||POLL_BUSY;}
+function scopeId(p,l,k){return p+'|'+(l===null||l===undefined?'-':l)+'|'+k;}
+/* Value of a parameter as the board reports it, so a desire can be checked. */
+function boardVal(s,p,l,k){
+ if(!s||!s.strips||!s.strips[p])return undefined;
+ if(k==='gainDb'||k==='agc')return s[k];
+ var st=s.strips[p];
+ if(l===null||l===undefined)return st[k];
+ if(!st.layers||!st.layers[l])return undefined;
+ return st.layers[l][k];
+}
+/* Is this exact parameter still waiting to be confirmed by the board? */
+function inFlight(p,l,k){
+ return DES[scopeId(p,l,k)]!==undefined;
+}
+function want(p,l,k,v){
+ var id=scopeId(p,l,k);
+ var e=DES[id];
+ if(!e){e={p:p,l:l,k:k,v:v,tries:0,ts:Date.now(),due:0};DES[id]=e;}
+ else{e.v=v;e.ts=Date.now();e.due=0;}
+ if(Q.indexOf(id)<0)Q.push(id);
+ USER_TS=Date.now();
+ if(!PTMR&&!busySocket()){PTMR=setTimeout(function(){PTMR=0;flush();},45);}
+}
+/* The three write scopes. A global parameter (mic gain, AGC) is stored on the
+   board outside the strip, so it is keyed on strip 0 with no layer. */
+function sendLayer(k,v){want(S,L,k,v);}
+function sendPhys(k,v){want(S,null,k,v);}
+function sendGlobal(k,v){want(0,null,k,v);}
+function urlFor(e){
+ return 'strip='+e.p+(e.l===null||e.l===undefined?'':'&layer='+e.l)
+  +'&'+e.k+'='+encodeURIComponent(e.v);
+}
 function flush(){
  if(PTMR){clearTimeout(PTMR);PTMR=0;}
+ // Watchdog: a request that has been "in flight" far longer than its deadline
+ // means the abort did not settle either. Never leave the page wedged on it.
+ if(INFLIGHT&&Date.now()-SENT_AT>3500){INFLIGHT=false;}
  if(busySocket()){
-  // Only one socket at a time: wait for the state read to finish.
   if(!PTMR)PTMR=setTimeout(function(){PTMR=0;flush();},60);
   return;
  }
- if(!LAST){
+ // Skip entries still backing off after a failed attempt, and remember the
+ // earliest one that is due, so a board that is briefly unreachable is retried
+ // over seconds rather than burning every attempt in a burst.
+ var dueId=null,dueAt=0;
+ var now=Date.now();
+ for(var i=0;i<Q.length;){
+  var qid=Q[i];
+  if(!DES[qid]){Q.splice(i,1);continue;}
+  var due=DES[qid].due||0;
+  if(due<=now){dueId=qid;break;}
+  if(!dueAt||due<dueAt)dueAt=due;
+  i++;
+ }
+ if(!dueId&&dueAt){
+  if(!PTMR)PTMR=setTimeout(function(){PTMR=0;flush();},Math.max(30,dueAt-Date.now()));
+  return;
+ }
+ if(dueId){var at=Q.indexOf(dueId);if(at>0)Q.splice(at,1),Q.unshift(dueId);}
+ if(!Q.length){
   // Nothing to send: run a pending state refresh now, otherwise it waits for a
   // request that may never come and the page keeps a stale view of the board.
   var f=AFTER;AFTER=null;if(f)f();
   return;
  }
- var url=LAST;LAST=null;
- INFLIGHT=true;
+ var id=dueId;if(!id){id=Q.shift();}
+ if(!id||!DES[id]){return;}
+ if(Q[0]===id)Q.shift();
+ var e=DES[id];
+ INFLIGHT=true;SENT_AT=Date.now();
  var done=function(ok){
   INFLIGHT=false;
-  if(!ok&&RETRY<2&&!LAST){RETRY++;LAST=url;}
-  else if(ok){RETRY=0;}
-  if(LAST){if(!PTMR)PTMR=setTimeout(function(){PTMR=0;flush();},45);return;}
+  if(!ok&&DES[id]){
+   e.tries++;
+   // 150 ms, 300, 600, 1.2 s, then every 2 s: a board that is unreachable for a
+   // few seconds still ends up with the value, without flooding it.
+   var back=Math.min(2000,150*Math.pow(2,Math.min(e.tries,5)));
+   e.due=Date.now()+back;
+   if(e.tries<=10&&Q.indexOf(id)<0)Q.push(id);
+   if(e.tries>10){delete DES[id];}
+  }
+  if(Q.length){if(!PTMR)PTMR=setTimeout(function(){PTMR=0;flush();},40);return;}
   if(AFTER){var f=AFTER;AFTER=null;f();}
  };
  var opt=abortAfter(2500);
  opt.method='POST';
- fetch('/api/params?'+url,opt).then(function(r){done(r.ok);},function(){done(false);});
+ fetch('/api/params?'+urlFor(e),opt)
+  .then(function(r){done(r.ok);},function(){done(false);});
 }
 function fetchState(){
  var opt=abortAfter(2500);
@@ -270,6 +370,23 @@ function fetchState(){
   return r.json();
  });
 }
+/* A state read is the truth: drop the desires the board already satisfies and
+   re-queue the ones it does not. */
+function reconcile(s){
+ var now=Date.now();
+ for(var id in DES){
+  var e=DES[id];
+  if(String(boardVal(s,e.p,e.l,e.k))===String(e.v)){delete DES[id];continue;}
+  if(now-e.ts>700&&e.tries<10&&(e.due||0)<=now){
+   e.tries++;e.ts=now;
+   e.due=now+Math.min(2000,200*Math.pow(2,Math.min(e.tries,4)));
+   if(Q.indexOf(id)<0)Q.push(id);
+  }else if(e.tries>=10){
+   // The board will not take this value: accept its answer instead of lying.
+   delete DES[id];
+  }
+ }
+}
 function syncState(then){
  AFTER=function(){
   fetchState().then(function(s){apply(s);if(then)then();})
@@ -277,15 +394,6 @@ function syncState(then){
  };
  flush();
 }
-/* Any request the page makes counts as "the user is busy": a poll that lands in
-   that window would otherwise fight the control being moved. */
-function sendRaw(q){
- LAST=q;USER_TS=Date.now();
- if(!PTMR&&!busySocket()){PTMR=setTimeout(function(){PTMR=0;flush();},55);}
-}
-function sendLayer(k,v){sendRaw('strip='+S+'&layer='+L+'&'+k+'='+encodeURIComponent(v));}
-function sendPhys(k,v){sendRaw('strip='+S+'&'+k+'='+encodeURIComponent(v));}
-
 /* ---- threshold drag on the live level meter ---- */
 function pickThr(e,commit){
  var bar=$('bar0'),rect=bar.getBoundingClientRect();
@@ -527,7 +635,7 @@ function build(){
  var bar=$('bar0');
  bar.addEventListener('pointerdown',function(e){
   if(!(TRIG&TB.thr))return;
-  e.preventDefault();TDRAG=S;
+  e.preventDefault();TDRAG=S;DRAG_TS=Date.now();
   if(bar.setPointerCapture){try{bar.setPointerCapture(e.pointerId);}catch(_){}}
   pickThr(e,false);
  });
@@ -567,7 +675,7 @@ function build(){
  initWheel();
  var wh=$('wheel');
  wh.addEventListener('pointerdown',function(e){
-  e.preventDefault();WDRAG=true;
+  e.preventDefault();WDRAG=true;DRAG_TS=Date.now();
   if(wh.setPointerCapture){try{wh.setPointerCapture(e.pointerId);}catch(_){}}
   pickWheel(e,false);
  });
@@ -645,18 +753,7 @@ function build(){
   RETRIG=RETRIG?0:1;setRetrig();labels();sendLayer('retrigger',RETRIG);flush();
  };
 
- /* ---- calibration (physical) ---- */
- var cbox=$('calbox');
- cbox.innerHTML='<div class=ptitle id=ctitle>Strip calibration<small id=calhint>lights only the end LED while adjusting</small></div>'
-  +'<div class=row><span>LEDs on this physical strip</span><b id="ledCountv">-</b></div>'
-  +'<input type=range id="ledCount" min=1 max=1000 step=1>'
-  +'<div class=rline style="margin-top:6px">'
-  +'<button type=button id=lcdec10 class=stepbtn>-10</button>'
-  +'<button type=button id=lcdec class=stepbtn>&larr;</button>'
-  +'<button type=button id=lcinc class=stepbtn>&rarr;</button>'
-  +'<button type=button id=lcinc10 class=stepbtn>+10</button>'
-  +'<button type=button id=calbtn class=tbtn style="margin-left:auto">Calibrate</button>'
-  +'</div>';
+ /* ---- physical: LED count + calibration, in the strip card ---- */
  $('ledCount').addEventListener('input',function(){labels();sendPhys('ledCount',$('ledCount').value);});
  $('ledCount').addEventListener('change',flush);
  function stepLeds(delta){
@@ -705,7 +802,7 @@ function refreshTitle(){
  var c=cur(),p=phys();
  if(!c||!p)return;
  var col=colOf(c);
- ['ptitle','ttitle','dtitle','atitle','ctitle'].forEach(function(id){if($(id))$(id).style.borderLeftColor=col;});
+ ['ptitle','ttitle','dtitle','atitle'].forEach(function(id){if($(id))$(id).style.borderLeftColor=col;});
  $('colv').textContent=col;
  var tl=[];
  if(TRIG&TB.thr)tl.push(c.thresholdPct+'% thr');
@@ -799,7 +896,7 @@ function setCalib(){
  if(!b)return;
  b.className='tbtn '+(CALIB?'on':'');
  b.textContent=CALIB?'Exit calib':'Calibrate';
- if(h)h.textContent=CALIB?'CALIBRATING: only the end LED is lit':'lights only the end LED while adjusting';
+ if(h)h.textContent=CALIB?'CALIBRATING: only the end LED is lit':'calibrate lights only the end LED while you adjust the count';
 }
 function setSolo(){
  var b=$('solobtn');
@@ -819,33 +916,38 @@ function fillInputs(){
  if(!ST||!BUILT)return;
  var c=cur(),p=phys();
  if(!c||!p)return;
+ // A control with a write still in flight keeps what the user just set: the
+ // value on screen is newer than the one in the state read, and overwriting it
+ // is exactly what made the threshold look stuck.
+ var lay=function(k){return !inFlight(S,L,k);};
+ var phy=function(k){return !inFlight(S,null,k);};
  [TRIGSPEC,ANIMSPEC].forEach(function(list){
-  list.forEach(function(s){if($(s.k)&&c[s.k]!==undefined)$(s.k).value=c[s.k];});
+  list.forEach(function(s){
+   if($(s.k)&&c[s.k]!==undefined&&lay(s.k))$(s.k).value=c[s.k];
+  });
  });
- $('beatSensitivityPct').value=c.beatSensitivityPct;
- $('motionThresholdPct').value=c.motionThresholdPct;
- $('lfoPeriodMs').value=c.lfoPeriodMs;
- $('attackMs').value=c.attackMs;
- $('releaseMs').value=c.releaseMs;
- $('intensityPct').value=c.intensityPct;
- $('softnessPct').value=c.softnessPct;
- $('brightnessPct').value=p.brightnessPct;
-
- $('ledCount').value=p.ledCount;
- $('pwr').checked=!!c.enabled;
- $('gainDb').value=ST.gainDb;
- AGC=ST.agc?1:0;
- setAgc();
- TRIG=c.triggers||0;EFF=c.effect||0;REV=c.reverse||0;LOOP=c.loop?1:0;
- RETRIG=c.retrigger!==undefined?(c.retrigger?1:0):1;
- CALIB=p.calib?1:0;
- SOLO=(p.solo===undefined)?-1:p.solo;
+ [['beatSensitivityPct','beatSensitivityPct'],['motionThresholdPct','motionThresholdPct'],
+  ['lfoPeriodMs','lfoPeriodMs'],['attackMs','attackMs'],['releaseMs','releaseMs'],
+  ['intensityPct','intensityPct'],['softnessPct','softnessPct']].forEach(function(pair){
+   if($(pair[0])&&lay(pair[1]))$(pair[0]).value=c[pair[1]];
+  });
+ if(phy('brightnessPct'))$('brightnessPct').value=p.brightnessPct;
+ if(phy('ledCount'))$('ledCount').value=p.ledCount;
+ if(lay('enabled'))$('pwr').checked=!!c.enabled;
+ if(!inFlight(0,null,'gainDb'))$('gainDb').value=ST.gainDb;
+ if(!inFlight(0,null,'agc')){AGC=ST.agc?1:0;setAgc();}
+ if(lay('triggers'))TRIG=c.triggers||0;
+ if(lay('effect'))EFF=c.effect||0;
+ if(lay('reverse'))REV=c.reverse||0;
+ if(lay('loop'))LOOP=c.loop?1:0;
+ if(lay('retrigger'))RETRIG=c.retrigger!==undefined?(c.retrigger?1:0):1;
+ if(phy('calib'))CALIB=p.calib?1:0;
+ if(phy('solo'))SOLO=(p.solo===undefined)?-1:p.solo;
  buildLayerTabs();
  setLayerSel();setTriggers();setEff();setDir();setLoop();setRetrig();setCalib();setSolo();
- setColorHex(colOf(c));
+ if(lay('color'))setColorHex(colOf(c));
  labels();
 }
-
 function flashMsg(t){
  $('pmsg').textContent=t;
  if(MSGTMR)clearTimeout(MSGTMR);
@@ -885,8 +987,14 @@ function live(){
  }
  if(ST.ssid)$('host').textContent=ST.ssid+' · '+location.host+(ST.ver?(' · '+ST.ver):'');
  $('sLvl').textContent=ST.levelPct+'%';
- $('sDb').textContent=ST.dbfs;
+ $('sDb').textContent=ST.dbfs+' dBFS';
  $('sPk').textContent=ST.peakHz+' Hz';
+ if($('sAgcPk'))$('sAgcPk').textContent=(ST.agcPeakPct!==undefined?ST.agcPeakPct+'%':'-');
+ // These follow the board on every read, not just on a full refill: they are
+ // explanations of what is happening right now.
+ drawDbScale();
+ explainAgc();
+ if($('agcbtn')&&!inFlight(0,null,'agc')){AGC=ST.agc?1:0;setAgc();}
  if(!MSGTMR)$('pmsg').textContent=ST.unsaved?'auto-saving…':'auto-saved';
  $('gainDbv').textContent=(ST.gainDb>0?'+':'')+ST.gainDb+' dB';
  $('ld1').disabled=!ST.hasPreset0;
@@ -922,6 +1030,7 @@ function structSig(s){
 var STRUCT='';
 function apply(s){
  ST=s;
+ reconcile(s);
  if(!BUILT&&ST.strips.length){
   BUILT=true;
   buildSelectors(ST.strips.length);
@@ -940,11 +1049,11 @@ function apply(s){
   if(L>layerCount()-1)L=layerCount()-1;
   fillInputs();
  }
- else if(!editing()&&!LAST&&Date.now()-USER_TS>900){
+ else if(!editing()&&Date.now()-USER_TS>600){
   // Nothing is being touched, so make the controls say exactly what the board
-  // holds. Whatever drifted - a dropped POST, the other phone, AGC nudging the
-  // gain, the board's own buttons - is corrected within one poll instead of
-  // staying on screen and being sent back on the next edit.
+  // holds. Whatever drifted - the other phone, AGC moving the gain, the board's
+  // own buttons - is corrected within one poll. Controls with a write still in
+  // flight are skipped, so an edit is never overwritten by a stale read.
   fillInputs();
  }
  live();
@@ -952,7 +1061,7 @@ function apply(s){
 function post(u,refresh){
  // Goes through the same single-socket rule as everything else: a preset POST
  // racing the poll is what used to make one of them hang.
- INFLIGHT=true;
+ INFLIGHT=true;SENT_AT=Date.now();
  var opt=abortAfter(4000);
  opt.method='POST';opt.cache='no-store';
  return fetch(u,opt).then(function(r){INFLIGHT=false;return r.json();}).then(function(s){
@@ -968,20 +1077,45 @@ function setAgc(){
  sl.disabled=!!AGC;
  sl.style.opacity=AGC?'0.35':'1';
  if(h)h.textContent=AGC
-  ?'automatic: the firmware nudges the gain to keep the level in range (move the slider to take over)'
+  ?'automatic: the gain is nudged so peaks land in the centre of the green band'
   :'negative attenuates: use it when the room is too loud';
+}
+/* The needle sits on the same scale the firmware uses: -55 dBFS is 0 %, -18 is
+   100 %. The zones are where the beat and threshold detectors like to work, so
+   it is obvious at a glance whether the gain has room to help. */
+function drawDbScale(){
+ if(!$('dbnow'))return;
+ var lo=-55, hi=-18, db=ST&&ST.dbfs!==undefined?ST.dbfs:lo;
+ var pct=Math.round(Math.max(0,Math.min(1,(db-lo)/(hi-lo)))*100);
+ $('dbnow').style.left=pct+'%';
+ var z='quiet room';
+ if(pct>=80)z='loud: the detectors may saturate';
+ else if(pct>=40)z='good range';
+ if($('dbhint'))$('dbhint').textContent='room '+db+' dBFS \u00b7 '+z;
+}
+function explainAgc(){
+ var h=$('agcwhat');
+ if(!h)return;
+ if(!AGC){h.textContent='';return;}
+ var pk=ST.agcPeakPct||0, act=ST.agcAction, g=ST.gainDb;
+ var t;
+ if(act===1)t='raising the gain: peaks only reach '+pk+'% of the range';
+ else if(act===-1)t='lowering the gain: peaks reach '+pk+'%, too close to clipping';
+ else if(act===2)t='holding: peaks at '+pk+'% are in the good band';
+ else t='idle: nothing loud enough to judge ('+pk+'%)';
+ h.textContent='AGC '+t+' \u00b7 now at '+(g>0?'+':'')+g+' dB';
 }
 $('agcbtn').onclick=function(){
  AGC=AGC?0:1;
  setAgc();
- sendRaw('agc='+AGC);
+ sendGlobal('agc',AGC);
  flush();
 };
 $('gainDb').addEventListener('input',function(){
  var v=+$('gainDb').value;
  $('gainDbv').textContent=(v>0?'+':'')+v+' dB';
 });
-$('gainDb').addEventListener('change',function(){sendRaw('gainDb='+$('gainDb').value);flush();});
+$('gainDb').addEventListener('change',function(){sendGlobal('gainDb',$('gainDb').value);flush();});
 [1,2,3].forEach(function(n){
  $('sp'+n).onclick=function(){flush();post('/api/preset?slot='+n+'&action=save',false).then(function(){flashMsg('Preset '+n+' saved');});};
  $('ld'+n).onclick=function(){flush();post('/api/preset?slot='+n+'&action=load',true).then(function(){flashMsg('Preset '+n+' loaded');});};
@@ -992,13 +1126,14 @@ $('rst').onclick=function(){
  }
 };
 function poll(){
- if(busySocket()||editing()||LAST)return;
+ dragWatchdog();
+ if(busySocket()||editing())return;
  // A poll that lands just after a knob moved would overwrite what the user is
  // setting with a value the board has not seen yet.
  if(Date.now()-USER_TS<900)return;
  POLL_BUSY=true;
  fetchState()
-  .then(function(s){POLL_BUSY=false;if(!editing()&&!LAST)apply(s);})
+  .then(function(s){POLL_BUSY=false;if(!editing())apply(s);})
   .catch(function(){POLL_BUSY=false;flashMsg('sync lost - reload the page');});
 }
 fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
@@ -1203,6 +1338,10 @@ String WebUi::stateJson() const {
   kvd("dbfs", (int)tele_.dbfs);
   comma();
   kvu("peakHz", tele_.peakHz);
+  comma();
+  kvd("agcAction", (int)tele_.agcAction);
+  comma();
+  kvu("agcPeakPct", tele_.agcPeakPct);
   comma();
   kvu("unsaved", unsaved_ ? 1u : 0u);
   comma();

@@ -59,6 +59,10 @@ constexpr float kAgcLowerAbove = 0.90f; // peak-hold above this -> too hot
 constexpr float kAgcActAbove = 0.08f;   // below this there is nothing to judge
 float agcPeak = 0.0f;
 uint32_t agcLastMs = 0;
+// Published for the phone, which explains what the AGC is doing. The Telemetry
+// struct is built later in loop(), so the controller leaves its verdict here.
+int8_t agcActionPub = 0;   // -1 lower, 0 idle, +1 raise, 2 holding
+uint8_t agcPeakPctPub = 0; // the peak the last decision was based on
 
 // Render target. The microphone runs at ~31 Hz in its own task; the animation
 // and the strip run at this rate instead. It is only a *cap*: the LED transfer
@@ -206,6 +210,7 @@ void runAgc(uint32_t nowMs) {
   if (!settings.agc) {
     agcPeak = 0.0f;
     agcLastMs = nowMs;
+    agcActionPub = 0;
     return;
   }
   if (snap.level > agcPeak) {
@@ -217,16 +222,23 @@ void runAgc(uint32_t nowMs) {
   agcLastMs = nowMs;
   const float peak = agcPeak;
   agcPeak = 0.0f;
+  agcPeakPctPub = (uint8_t)(peak * 100.0f + 0.5f);
+  // "Holding" only when there is something to hold: below the action level the
+  // AGC is deliberately idle, which is a different message.
+  agcActionPub = peak >= kAgcActAbove ? (int8_t)2 : (int8_t)0;
 
   if (peak < kAgcActAbove) {
     return; // silence: leave the gain alone rather than amplifying the room
   }
 
   int8_t g = settings.gainDb;
+  int8_t action = 0;
   if (peak < kAgcRaiseBelow && g < kMaxGainDb) {
     g = (int8_t)(g + kGainStepDb);
+    action = 1;
   } else if (peak > kAgcLowerAbove && g > kMinGainDb) {
     g = (int8_t)(g - kGainStepDb);
+    action = -1;
   } else {
     return;
   }
@@ -234,6 +246,7 @@ void runAgc(uint32_t nowMs) {
     return;
   }
   settings.gainDb = g;
+  agcActionPub = action; // -1 down, +1 up
   clampSettings(settings);
   noteSettingsChanged();
   display.invalidateHud();
@@ -413,6 +426,8 @@ void loop() {
   tele.levelPct = (uint8_t)(snap.level * 100.0f + 0.5f);
   tele.dbfs = (int16_t)lroundf(snap.levelDb);
   tele.peakHz = (uint16_t)lroundf(snap.peakHz);
+  tele.agcAction = agcActionPub;
+  tele.agcPeakPct = agcPeakPctPub;
 
   for (size_t i = 0; i < kStripCount; i++) {
     renderStrip(i, nowMs, dtSec, tele);

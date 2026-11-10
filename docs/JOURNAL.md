@@ -1088,6 +1088,57 @@ noise locks never, masked beat 100 with 15 predicted beats, syncopation 101, swi
 Visible surface: the phone shows `118 BPM 99%` when locked and `listening` when not,
 where the percentage is the grid-fit quality (`beatConf` in `/api/state`).
 
+## 2026-11-10 — Lost writes, a room-level meter, and physical controls in one place
+
+### The stuck threshold was a lost write, not a stuck control
+
+The board serves one socket at a time; a poll and a write collide and one is
+dropped. The page had already drawn the new threshold, the next state read put the
+board's old value back, and the marker snapped home. Every other control "worked"
+only because a slider's thumb follows the finger and the revert was easier to miss.
+
+Fixed by removing the assumption that a write lands:
+
+* writes live in a `DES` map (strip/layer/key → desired value) and a queue `Q`
+* one request at a time, with a deadline; failures back off 150 ms → 2 s (10 tries)
+* each `/api/state` **reconciles**: satisfied desires are dropped, unsatisfied ones
+  re-queued. A lost request costs a retry, never the edit
+* `fillInputs()` skips controls whose write is in flight, so a read that is older
+  than the user's finger cannot overwrite it
+* watchdogs on the in-flight flag (3.5 s) and on the drag flags (4 s, plus
+  window-level pointerup/cancel/blur) - a latched drag used to stop polling
+
+Verified against a mock that drops 50 % of writes: six interleaved rounds of
+threshold drag + speed + softness + a trigger chip end with page == board on all
+four parameters, nothing queued, no wedged flags. A 6-second total outage loses
+nothing: the value was still desired (5 attempts, backing off) and landed on
+recovery.
+
+### Making sense of the microphone and the AGC
+
+New in the mic card: a **room-level meter** on the analyser's own scale
+(−55 dBFS = 0 %, −18 dBFS = 100 %) with a quiet / good / hot background and a live
+needle, plus a sentence that says what the AGC is doing and why:
+
+```
+room -28 dBFS · good range
+AGC raising the gain: peaks only reach 22% of the range · now at -6 dB
+AGC holding: peaks at 55% are in the good band
+AGC lowering the gain: peaks reach 96%, too close to clipping
+AGC idle: nothing loud enough to judge (4%)
+```
+
+The firmware publishes `agcAction` (-1/0/1/2) and `agcPeakPct` for this, so the
+explanation is the board's own verdict rather than the page's guess.
+
+### Physical controls are together now
+
+`LEDs on this strip`, its −10/←/→/+10 steppers and `Calibrate` moved out of the
+trailing calibration card into the **strip card**, right under `Strip brightness`.
+The strip card is now purely physical: `Physical strip (tabs) → Strip brightness →
+LEDs on this strip → Calibrate → Light layers inside → Layer power/intensity`. The
+separate calibration card is gone.
+
 ## Roadmap / Next Up (DO NOT FORGET)
 
 - [ ] **Hardware verification on M5StickS3**:
