@@ -492,6 +492,12 @@ it when the slider is released.
   board's state agrees. Controls with a write in flight are never overwritten by a
   read.
 * The page pauses both channels when the tab is hidden and resumes on return.
+* **No control ever moves because of text.** Every line whose content is rewritten
+  at runtime — the room-level sentence, the AGC explanation, the calibration hint,
+  the slot hint, the flash message, the header badges — lives in a box with a fixed
+  height, and long lines ellipsise instead of wrapping. A readout that gained a
+  digit used to push the whole page down by one line, moving the button under the
+  finger that was reaching for it.
 * The frame ends with the **worst render-loop gap of the last second**. The header
   shows `loop 120 ms` (amber above 40 ms, red above 90 ms) and nothing at all when
   the loop is healthy, so a stuttering animation is never left unexplained.

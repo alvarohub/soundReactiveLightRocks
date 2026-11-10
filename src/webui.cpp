@@ -19,9 +19,18 @@ const char kPage[] PROGMEM = R"PAGE(<!doctype html>
 *{box-sizing:border-box}
 /* Right 1/6 of the viewport (16.7vw) is kept empty as a safe thumb-scroll gutter. */
 body{margin:0;padding:14px 16.7vw 28px 12px;max-width:640px;background:#0f1115;color:#e6edf3;font:16px/1.45 system-ui,-apple-system,sans-serif;border-right:1px dashed #21262e}
-h1{margin:0 0 10px;font-size:1.15rem;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-h1 span{font-size:.72rem;color:#8b949e;font-weight:400;display:flex;gap:8px;align-items:center;justify-content:flex-end}
-.loopms{display:none;font-style:normal;font-size:.62rem;font-weight:700;color:#ffd580;background:#3a2f12;border-radius:8px;padding:2px 7px}
+h1{margin:0 0 10px;height:30px;overflow:hidden;font-size:1.15rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:10px}
+h1 span{font-size:.72rem;color:#8b949e;font-weight:400;display:flex;gap:8px;align-items:center;justify-content:flex-end;min-width:0;overflow:hidden}
+#host{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.loopms{display:none;font-style:normal;font-size:.62rem;font-weight:700;color:#ffd580;background:#3a2f12;border-radius:8px;padding:3px 7px;min-width:82px;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}
+/* ---- text that changes while you watch ----
+   A sentence that wraps to two lines one second and one line the next lifts
+   every control below it, so a button moves out from under the finger that was
+   aiming at it. Anything whose content is rewritten at runtime is given a box
+   that cannot change size, and long lines ellipsise instead of wrapping. */
+.dyn{height:35px;overflow:hidden}                          /* exactly two .76rem lines */
+.dyn1{height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dynb{height:21px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
 .linkdot{font-style:normal;font-size:.62rem;font-weight:700;color:#0f1115;background:#484f58;border-radius:8px;padding:2px 7px;letter-spacing:.03em}
 .padopen{width:100%;padding:12px 14px;margin-bottom:10px;border-radius:12px;border:2px solid #58a6ff;background:linear-gradient(135deg,#16233a,#171b21);color:#f0f6fc;font-size:1rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:pointer;touch-action:manipulation}
 .padopen small{font-weight:500;font-size:.76rem;color:#8b949e}
@@ -124,7 +133,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 /* A dangerous action asks twice and looks different while it is asking. */
 .btn.armed{background:#3a2411;border-color:#d29922;color:#ffd580}
 .btn:disabled{opacity:.3;cursor:not-allowed}
-#pmsg{color:#8b949e;font-size:.78rem;font-weight:400}
+#pmsg{color:#8b949e;font-size:.78rem;font-weight:400;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ptitle{margin:0 0 8px;padding-left:9px;border-left:4px solid #58a6ff;font-weight:600;color:#f0f6fc}
 .ptitle small{display:block;font-weight:400;font-size:.76rem;color:#8b949e;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Live readouts must never reflow: a value that grows ('lvl 7%' to 'lvl 100%') would
@@ -173,14 +182,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=ptitle style="border-left-color:#3fb950">Microphone (global)<small>shared input for every layer</small></div>
 <div class="row first"><span>Room level (before any gain)</span><b id=sDb>-</b></div>
 <div class=dbscale><u id=dbnow></u><span class=zq></span><span class=zg></span><span class=zh></span></div>
-<div class=hint id=dbhint>the microphone's own level: the green band is the range that suits the detectors</div>
+<div class="hint dyn" id=dbhint>the microphone's own level: the green band is the range that suits the detectors</div>
 <div class="row"><span>Microphone gain</span><b id=gainDbv>-</b></div>
 <div class=rline>
 <input type=range id=gainDb min=-24 max=18 step=3>
 <button type=button id=agcbtn class=tbtn>AGC</button>
 </div>
-<div class=hint id=agchint>negative attenuates: use it when the room is too loud</div>
-<div class=hint id=agcwhat></div>
+<div class="hint dyn" id=agchint>negative attenuates: use it when the room is too loud</div>
+<div class="hint dyn" id=agcwhat></div>
 <div class=stats>
 <div><span>Input now</span><b id=sLvl>0%</b></div>
 <div><span>Peak heard</span><b id=sAgcPk>-</b></div>
@@ -202,7 +211,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <button type=button id=lcinc10 class=stepbtn>+10</button>
 <button type=button id=calbtn class=tbtn style="margin-left:auto">Calibrate</button>
 </div>
-<div class=hint id=calhint>calibrate lights only the end LED while you adjust the count</div>
+<div class="hint dyn" id=calhint>calibrate lights only the end LED while you adjust the count</div>
 <div class="row" style="margin-top:12px"><span>Light layers inside</span><b id=lcv>-</b></div>
 <div class=layerlist id=layerlist></div>
 <div class=rline style="margin-top:8px">
@@ -226,13 +235,13 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:0;border-radiu
 <div class=card id=animbox></div>
 
 <div class=card>
-<div class="row first"><span>Preset slots</span><b id=pmsg></b></div>
+<div class="row first"><span>Preset slots</span><b class=dynb id=pmsg></b></div>
 <div class=slots id=slots></div>
 <div class=rline style="margin-top:8px">
 <button id=ldbtn class="btn alt" style="flex:1">Recall</button>
 <button id=spbtn class=btn style="flex:1">Save here</button>
 </div>
-<div class=hint id=sthint>pick a slot, then Recall or Save. Saving over a used slot asks twice.</div>
+<div class="hint dyn" id=sthint>pick a slot, then Recall or Save. Saving over a used slot asks twice.</div>
 <button id=rst class="btn warn wide" style="margin-top:10px">Reset live settings</button>
 </div>
 
@@ -405,7 +414,7 @@ function flush(){
   if(e.once){
    // Sent once, never retried: a retried "add layer" is a second layer.
    delete DES[id];
-   if(!ok)flashMsg('the board did not answer - nothing was changed');
+   if(!ok)flashMsg('no answer, nothing changed');
   }
   if(!ok&&!e.once&&DES[id]){
    e.tries++;
@@ -455,7 +464,7 @@ function reconcile(s){
 function syncState(then){
  AFTER=function(){
   fetchState().then(function(s){apply(s);if(then)then();})
-   .catch(function(){flashMsg('sync lost - reload the page');});
+   .catch(function(){flashMsg('sync lost, reload');});
  };
  flush();
 }
@@ -873,11 +882,11 @@ function build(){
   // one never changes the light that is already on the strip.
   sendOnce('layerAdd',1);
   syncState(function(){L=layerCount()-1;fillInputs();live();
-   flashMsg('Layer '+(L+1)+' added - it is off, switch it on');});
+   flashMsg('Layer '+(L+1)+' added (off)');});
  };
  $('remlayer').onclick=function(){
   var n=layerCount();
-  if(n<=1){flashMsg('One layer must stay (power it off instead)');return;}
+  if(n<=1){flashMsg('one layer must stay');return;}
   if(structBusy())return;
   STRUCT_AT=Date.now();
   sendOnce('layerRemove',L);
@@ -1084,6 +1093,7 @@ function paintTelemetry(){
  if(c&&p){
   var col=colOf(c);
   var lvl=(TRIG&TB.beat)?Math.max(t.beat[S*4+L]||0,t.level2[S*4+L]||0):(t.level2[S*4+L]||0);
+  lvl=Math.max(0,Math.min(100,lvl));
   $('mb0').style.background=col;
   $('mb0').style.width=lvl+'%';
   $('mu0').style.left='calc('+c.thresholdPct+'% - 2px)';
@@ -1099,7 +1109,9 @@ function paintTelemetry(){
   for(var lq=0;lq<sq.layerCount;lq++){
    var g=$('pgrp'+q+'_'+lq);
    if(!g)continue;
-   var out=Math.max(t.level2[q*4+lq]||0, t.beat[q*4+lq]||0);
+   // Clamped: the bar is a percentage of the strip, and a corrupt or unexpected
+   // frame must not paint a fill wider than the bar it lives in.
+   var out=Math.max(0,Math.min(100,Math.max(t.level2[q*4+lq]||0, t.beat[q*4+lq]||0)));
    setText($('pgst'+q+'_'+lq),layModeName(sq.layers[lq])+' \u00b7 '+(t.blobs[q*4+lq]||0)+' \u00b7 lvl '+out+'%');
    $('pgb'+q+'_'+lq).style.width=out+'%';
   }
@@ -1232,7 +1244,7 @@ function post(u,refresh){
   if(!r.ok)return null;
   return r.json();
  },function(){INFLIGHT=false;return null;}).then(function(s){
-  if(!s){flashMsg('the board refused that request');return null;}
+  if(!s){flashMsg('board refused it');return null;}
   apply(s);if(refresh)fillInputs();buildSlots();
   return s;
  });
@@ -1604,7 +1616,7 @@ function poll(){
  POLL_BUSY=true;
  fetchState()
   .then(function(s){POLL_BUSY=false;if(!editing())apply(s);})
-  .catch(function(){POLL_BUSY=false;flashMsg('sync lost - reload the page');});
+  .catch(function(){POLL_BUSY=false;flashMsg('sync lost, reload');});
 }
 fetch('/api/state',{cache:'no-store'}).then(function(r){return r.json();}).then(apply).catch(function(){});
 // Settings: rarely, they change only when someone touches something. The live

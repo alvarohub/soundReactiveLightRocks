@@ -414,6 +414,25 @@ carrying both therefore raised the count to N and then added another layer on to
 removed a layer from an already-decremented count. Structural requests now own the
 count: `layerCount` is ignored whenever `layerAdd`/`layerRemove` is present.
 
+### A readout that changes length is a layout bug (2026-11-11)
+Live text was written straight into `.hint` divs and a `<b>` in a flex row. When the
+wording changed length ("quiet room" → "loud: the detectors may saturate", or
+`auto-saved` → `Layer 2 added`), the line wrapped to a second row, the card grew by
+17 px, and every control below it moved — including, on a phone, the button someone
+was aiming at. The header did the same whenever the loop-stall badge appeared.
+
+Measured rather than guessed: a script samples `getBoundingClientRect()` of every
+card, row, button and hint every 100 ms for 5 s while the mock sweeps every live value
+through its whole range, then reports any element whose height or top changed. Before
+the fix, 17 px of vertical drift; after it, none, at 320 px and 375 px wide.
+
+Rules:
+- anything rewritten at runtime gets a **fixed height** (`.dyn` two lines, `.dyn1`
+  one line, `.dynb` one line bold) and ellipsises;
+- `h1` has a fixed height so a badge appearing cannot resize it;
+- flash messages are kept short enough to be ellipsised on one line;
+- clamp any percentage read off the wire to 0..100 before painting a bar with it.
+
 ### Persisted memory must not be readable outside the live range (2026-11-11)
 NVS stores all four layer slots per strip, but only `layerCount` of them are live.
 Nothing reset the dead ones, so their contents survived reboots and became visible

@@ -1427,3 +1427,46 @@ raised count exposes a fresh slot, `layerCount` clamped to 4.
 
 Firmware **v2.2**.
 
+---
+
+## 2026-11-11 — The page that moved under the finger
+
+### Symptom
+The interface drifted up and down by itself, so the button you were about to press was
+no longer where you were pressing. Worst in the pad controls and anywhere a number got
+longer.
+
+### Method
+Guessing which line was guilty would have taken forever, so the page was instrumented
+instead: sample `getBoundingClientRect()` of every card, row, button, pad and hint every
+100 ms for five seconds while a mock swept level, dBFS, peak frequency, BPM, confidence
+and the spectrum through their full ranges. Any element whose height or document-`top`
+changed is a layout shift, by definition.
+
+Two culprits, 17 px apart:
+- `#dbhint` ("room −18 dBFS · loud: the detectors may saturate") wrapped to two lines
+  where "quiet room" took one, growing the microphone card by 17 px and moving
+  everything below it;
+- the loop-stall badge in the header was `display:none` most of the time, and showing
+  it changed the header's height by 6 px.
+
+Four more lines had the same latent bug and only escaped because the mock did not
+happen to flip them: `#agchint`, `#agcwhat` (only filled when AGC is on), `#calhint`
+(switches to a shorter sentence when calibrating — pressing Calibrate moved the layer
+list) and `#sthint` (four different sentences), plus `#pmsg` in a flex row
+(`auto-saved` → `Layer 2 added…`).
+
+### Fix
+Fixed-height boxes for live text (`.dyn` = two lines, `.dyn1`/`.dynb` = one line with
+ellipsis), a fixed-height `h1`, short flash messages, and a clamp of any wire percentage
+to 0–100 before it becomes a bar width.
+
+### Verified
+Zero moving elements at 320 px and 375 px width, in the page and inside the pad
+overlay (170 nodes), with AGC on, calibration on, and every live value sweeping. Each
+dynamic line was also replayed with every text it can hold: one height, no clipping.
+The mock's frame order was fixed first — it had written per-layer groups where the
+firmware writes struct-of-arrays, which is what made a pad read `lvl 189%`.
+
+Firmware **v2.3**.
+
