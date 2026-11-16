@@ -414,6 +414,37 @@ carrying both therefore raised the count to N and then added another layer on to
 removed a layer from an already-decremented count. Structural requests now own the
 count: `layerCount` is ignored whenever `layerAdd`/`layerRemove` is present.
 
+### The PlatformIO toolbar is not the build system (2026-11-16)
+Clicking Upload in the PlatformIO status-bar toolbar throws
+`Cannot read properties of undefined (reading 'id')`. It is not the project: the same
+upload from a shell flashes the board, `pio project config` lists all three
+environments, and `ProjectConfig` resolves `default_envs = m5sticks3` correctly.
+
+The extension resolves the button's task by filtering
+`task.name === 'Upload' && task.coreEnv === projectObserver.getSelectedEnv()` and
+then calling `runTask(candidates[0])` with no miss check
+(`platformio-ide/src/project/tasks.js:250-256`). `coreEnv` is the value after
+`--environment`, so it is `undefined` for the environment-free default tasks and an
+environment name for the per-environment ones. The filter therefore only matches when
+the selected environment and the *loaded* task list agree:
+
+* no environment selected → default tasks (`coreEnv === undefined`) match, fine;
+* environment X selected → X's tasks must have been loaded, which happens when
+  `getLoadedEnvTasks(X)` sees `_selectedEnv === X`.
+
+If the selection is X but the task list was built while `_selectedEnv` was still
+undefined — `switchToProject` restores the environment from
+`globalState.projects[dir].selectedEnv` and the state we found there is
+`{"selectedEnv": "m5sticks3"}` — the list has only default tasks, nothing matches, and
+`runTask(undefined)` throws. It stays broken until the environment is re-selected,
+because `_selectedEnv` is only validated inside `switchProjectEnv`.
+
+**Rule:** treat the PlatformIO toolbar as a convenience, never as the only way to
+build. `.vscode/tasks.json` carries `PIO: Build/Upload/Monitor` tasks for both
+environments that invoke `pio` directly, with the PlatformIO `penv/bin` prepended to
+`PATH` because the integrated terminal does not always inherit it. One of them is the
+default build task, so `cmd-shift-B` always works.
+
 ### A readout that changes length is a layout bug (2026-11-11)
 Live text was written straight into `.hint` divs and a `<b>` in a flex row. When the
 wording changed length ("quiet room" → "loud: the detectors may saturate", or

@@ -1470,3 +1470,48 @@ firmware writes struct-of-arrays, which is what made a pad read `lvl 189%`.
 
 Firmware **v2.3**.
 
+---
+
+## 2026-11-16 — "Cannot read properties of undefined (reading 'id')" on Upload
+
+### Reported
+Uploading to the M5StickS3 from the PlatformIO toolbar failed with a JavaScript
+TypeError.
+
+### Triage
+Not the project, and not the board:
+
+| Check | Result |
+|-------|--------|
+| `pio device list` | `cu.usbmodem1101`, `VID:PID=303A:1001` (ESP32-S3 USB/JTAG), present |
+| `pio run -e m5sticks3 -t upload` | flashed, `Hash of data verified`, hard reset |
+| `pio project config` | three environments, `default_envs = m5sticks3` |
+| extension's own ProjectConfig snippet | `envs` = all three, `default_env` = `m5sticks3` |
+| `globalState.projects[dir]` | `{"selectedEnv": "m5sticks3"}` |
+
+The stack trace named the extension, twice, via the toolbar:
+`toolbar.js:128 onButtonClick` → `platformio-ide.upload` → `tasks.js:255 _runTask` →
+`tasks.js:163 runTask` → `task.id` on `undefined`.
+
+### Cause
+`_runTask` filters the task list by `name === 'Upload' && coreEnv === getSelectedEnv()`
+and passes `candidates[0]` on without checking it exists. Since `coreEnv` is the value
+after `--environment`, only per-environment tasks carry the selected environment's
+name. Those come from `refresh()`'s `getLoadedEnvTasks(env)` loop, which loads an
+environment's tasks only when `_selectedEnv === env`. With the environment restored
+from globalState (`m5sticks3`) but the task list built while it was still unset, the
+list holds only environment-free tasks, nothing matches, and the button throws — and
+keeps throwing, because the selection is never re-validated.
+
+### Fix in the repo
+`.vscode/tasks.json` with `PIO: Build/Upload/Upload + Monitor/Monitor` for both
+environments, invoking `pio` directly and prepending `~/.platformio/penv/bin` to
+`PATH`; the S3 build is the default build task. Also documented the one-click
+remedy (status-bar `env:` → **Default**), which makes the toolbar fall back to the
+environment-free tasks.
+
+### Lesson
+The IDE extension is a wrapper. When a wrapper breaks, the underlying command is the
+thing to test first — it answers "is my project broken?" in one step and gives the
+workaround at the same time.
+

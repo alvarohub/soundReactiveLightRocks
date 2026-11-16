@@ -30,6 +30,26 @@ pio run -e m5stick-c-plus2            # build M5StickC Plus2 (G32/G33, AP "Light
 pio run -e m5stick-c-plus2 -t upload  # flash M5StickC Plus2
 ```
 
+### If the PlatformIO toolbar's Upload button says "Cannot read properties of undefined (reading 'id')"
+
+That error is the PlatformIO **IDE extension**, not this project: the toolbar looks
+its task up with `name === 'Upload' && coreEnv === <selected env>` and calls
+`runTask(candidates[0])` without checking for a miss
+(`platformio-ide/src/project/tasks.js:255`). When the extension's *selected
+environment* and the task list it managed to load disagree — a stale selection after
+reopening the project, or a `platformio.ini` read that came back empty — the filter
+returns nothing and the button dies. The same build and upload from a shell are fine
+and always have been.
+
+Two ways out, both in [.vscode/tasks.json](.vscode/tasks.json):
+
+* **`Terminal > Run Task…`** → `PIO: Upload (m5sticks3)`, or **`cmd-shift-B`** for
+  `PIO: Build (m5sticks3)`. These run PlatformIO Core directly, so they cannot be
+  affected by the extension.
+* Or click the **`env:` item in the VS Code status bar** and pick **Default**. With no
+  environment selected the toolbar falls back to the environment-free tasks and starts
+  working again — it then follows `default_envs` from `platformio.ini`.
+
 ## Wiring
 
 | Signal | M5StickS3 | M5StickC Plus2 | Grove wire |

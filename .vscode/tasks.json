@@ -1,0 +1,85 @@
+{
+  // PlatformIO tasks that do NOT go through the PlatformIO IDE toolbar.
+  //
+  // The toolbar's Build / Upload buttons resolve a task by
+  //   name === 'Upload' && coreEnv === <selected env>
+  // and then call runTask(candidates[0]) without checking for a miss
+  // (platformio-ide/src/project/tasks.js:255). When the extension's selected
+  // environment and the tasks it managed to load disagree, the filter comes back
+  // empty and the toolbar dies with "Cannot read properties of undefined
+  // (reading 'id')". These tasks call the same PlatformIO Core commands directly,
+  // so they keep working no matter what the extension thinks is selected.
+  //
+  // Run them with Terminal > Run Task..., or cmd-shift-B for the default build.
+  "version": "2.0.0",
+  "options": {
+    // PlatformIO installs its launcher here; the integrated terminal does not
+    // always inherit it, which would otherwise make `pio` "not found".
+    "env": {
+      "PATH": "${env:HOME}/.platformio/penv/bin:${env:PATH}"
+    }
+  },
+  "tasks": [
+    {
+      "label": "PIO: Build (m5sticks3)",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "m5sticks3"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$gcc",
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "PIO: Upload (m5sticks3)",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "m5sticks3", "-t", "upload"],
+      "group": "build",
+      "problemMatcher": "$gcc",
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "PIO: Upload + Monitor (m5sticks3)",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "m5sticks3", "-t", "upload", "-t", "monitor"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "PIO: Monitor (m5sticks3)",
+      "type": "shell",
+      "command": "pio",
+      "args": ["device", "monitor", "-e", "m5sticks3"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "PIO: Build (m5stick-c-plus2)",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "m5stick-c-plus2"],
+      "group": "build",
+      "problemMatcher": "$gcc",
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "PIO: Upload (m5stick-c-plus2)",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "m5stick-c-plus2", "-t", "upload"],
+      "group": "build",
+      "problemMatcher": "$gcc",
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "PIO: Upload + Monitor (m5stick-c-plus2)",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "m5stick-c-plus2", "-t", "upload", "-t", "monitor"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    }
+  ]
+}
